@@ -8,8 +8,8 @@ Read this file and `git log` before starting any work session.
 - [x] Version 1 design approved: `docs/plans/2026-10-12-part-kit-plush-design.md`
 - [x] Git repository set up, with a baseline commit of the existing app
 - [x] Implementation plan written: `docs/plans/2026-10-12-part-kit-plush-implementation.md`. Phases 0 and 1 were dry-run in a scratch copy on 2026-10-12 (2, then 9, then 16 tests passed).
-- [ ] Implementation plan approved by the owner
-- [ ] Phase 0: engine skeleton (expected 2 tests)
+- [x] Implementation plan approved by the owner (2026-10-12), together with gate G1 (hand-written test-only kits). Work happens on branch `feat/part-kit-v1`.
+- [x] Phase 0: engine skeleton. 2026-10-12: `cd engine && uv run pytest -q` gave 2 passed, 0 failed, 0 skipped.
 - [ ] Phase 1: part-kit format (expected 16)
 - [ ] Phase 2: part geometry (expected 29)
 - [ ] Phase 3: panels, flattening, seams (expected 42)
@@ -23,7 +23,6 @@ Read this file and `git log` before starting any work session.
 
 ## Open items waiting on the owner (approval gates in the plan)
 
-- G1: allow hand-written part kits as test-only inputs (before Phase 1).
 - G2: approve each starting value in `engine/settings.toml` (before Phase 3).
 - G3: choose the vision model from OpenRouter's list (Phase 8).
 - G4: supply real pictures and approve the live reading test (Phase 8).
