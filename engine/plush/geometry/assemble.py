@@ -29,6 +29,7 @@ class Placed:
     rotation: np.ndarray  # local -> world
     anchor: np.ndarray | None  # point on the parent's surface where it attaches
     parent: str | None  # name of the placed parent
+    scale_in: float = 0.0  # inches per kit unit after scaling to the finished height
 
 
 def _rotation(axis: np.ndarray, angle_deg: float) -> np.ndarray:
@@ -157,6 +158,7 @@ def assemble(kit: Kit, finished_height_in: float) -> dict[str, Placed]:
     shift = np.array([0.0, -lo[1] * k, 0.0])  # toy stands on y = 0
     for p in placed.values():
         p.mesh.vertices = p.mesh.vertices * k + shift
+        p.scale_in = finished_height_in * k
         if p.anchor is not None:
             p.anchor = p.anchor * k + shift
     return placed

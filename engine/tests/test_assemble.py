@@ -5,9 +5,10 @@ import pytest
 import trimesh
 
 from plush.geometry.assemble import assemble
-from plush.parts import parse_kit
+from plush.geometry.rounded_solid import rounded_solid_mesh
+from plush.parts import RoundedSolid, parse_kit
 
-from kits import bear
+from kits import BODY, bear
 
 
 @pytest.fixture(scope="module")
@@ -44,3 +45,8 @@ def test_assembly_height_equals_finished_height(placed):
     hi = np.max([p.mesh.bounds[1] for p in placed.values()], axis=0)
     assert hi[1] - lo[1] == pytest.approx(12.0, abs=1e-6)
     assert lo[1] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_scale_rebuilds_parts_at_finished_size(placed):
+    rebuilt = rounded_solid_mesh(RoundedSolid(**BODY), placed["body"].scale_in)
+    assert rebuilt.extents == pytest.approx(placed["body"].mesh.extents, rel=1e-9)

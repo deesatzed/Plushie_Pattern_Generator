@@ -38,7 +38,12 @@ def outline_polygon(part: FlatPart, scale_in: float) -> Polygon:
     return Polygon(np.vstack([right, left]))
 
 
-def flat_part_mesh(part: FlatPart, scale_in: float) -> trimesh.Trimesh:
+def outline_triangulation(part: FlatPart, scale_in: float) -> tuple[np.ndarray, np.ndarray, int]:
+    """Points and counter-clockwise triangles filling the outline.
+
+    The first `n_boundary` points are the outline itself: from the right end of
+    the base, up around the tip, down to the left end of the base.
+    """
     poly = outline_polygon(part, scale_in)
     w, h = part.width * scale_in, part.height * scale_in
     boundary = np.asarray(poly.exterior.coords)[:-1]
@@ -53,14 +58,20 @@ def flat_part_mesh(part: FlatPart, scale_in: float) -> trimesh.Trimesh:
     tri = tri[shapely.contains_xy(poly, centroids[:, 0], centroids[:, 1])]
     e1, e2 = pts[tri[:, 1]] - pts[tri[:, 0]], pts[tri[:, 2]] - pts[tri[:, 0]]
     flip = (e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]) < 0
-    tri[flip] = tri[flip][:, ::-1]  # all counter-clockwise, so the front faces +z
+    tri[flip] = tri[flip][:, ::-1]
+    return pts, tri, len(boundary)
 
+
+def flat_part_mesh(part: FlatPart, scale_in: float) -> trimesh.Trimesh:
+    pts, tri, nb = outline_triangulation(part, scale_in)
+    poly = outline_polygon(part, scale_in)
+    w, h = part.width * scale_in, part.height * scale_in
     dist = shapely.distance(poly.exterior, shapely.points(pts))
     thickness = part.puffiness * 0.5 * min(w, h)
     puff = thickness / 2 * np.sin(np.pi / 2 * dist / dist.max())
     cup = part.cupping * (w / 4) * (pts[:, 0] / (w / 2)) ** 2
 
-    n, nb = len(pts), len(boundary)
+    n = len(pts)
     top = np.column_stack([pts, cup + puff])
     back = np.column_stack([pts[nb:], cup[nb:] - puff[nb:]])
     vertices = np.vstack([top, back])
