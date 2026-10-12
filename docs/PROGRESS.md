@@ -11,13 +11,13 @@ Read this file and `git log` before starting any work session.
 - [x] Implementation plan approved by the owner (2026-10-12), together with gate G1 (hand-written test-only kits). Work happens on branch `feat/part-kit-v1`.
 - [x] Phase 0: engine skeleton. 2026-10-12: `cd engine && uv run pytest -q` gave 2 passed, 0 failed, 0 skipped.
 - [x] Phase 1: part-kit format. 2026-10-12: 16 passed, 0 failed, 0 skipped.
-- [ ] Phase 2: part geometry (expected 29)
-- [ ] Phase 3: panels, flattening, seams (expected 42)
-- [ ] Phase 4: stuffing correction (expected 48)
-- [ ] Phase 5: finishing and checks (expected 59)
-- [ ] Phase 6: outputs (expected 74)
-- [ ] Phase 7: projects and local service (expected 83)
-- [ ] Phase 8: picture reading (expected 85, plus live tests run with approval)
+- [ ] Phase 2: part geometry (expected 35; expanded in the plan 2026-10-12)
+- [ ] Phase 3: panels, flattening, seams (expected 48)
+- [ ] Phase 4: stuffing correction (expected 54)
+- [ ] Phase 5: finishing and checks (expected 65)
+- [ ] Phase 6: outputs (expected 80)
+- [ ] Phase 7: projects and local service (expected 89)
+- [ ] Phase 8: picture reading (expected 91, plus live tests run with approval)
 - [ ] Phase 9: Angular front end (expected 10 Angular tests)
 - [ ] Phase 10: documentation and end-to-end run
 
