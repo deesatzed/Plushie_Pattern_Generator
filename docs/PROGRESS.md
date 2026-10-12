@@ -7,13 +7,27 @@ Read this file and `git log` before starting any work session.
 - [x] Critique of the existing app: `docs/reviews/2026-10-12-critique-full.md`
 - [x] Version 1 design approved: `docs/plans/2026-10-12-part-kit-plush-design.md`
 - [x] Git repository set up, with a baseline commit of the existing app
-- [ ] Implementation plan written and approved
-- [ ] Implementation (the steps will be listed here once the plan is approved)
+- [x] Implementation plan written: `docs/plans/2026-10-12-part-kit-plush-implementation.md`. Phases 0 and 1 were dry-run in a scratch copy on 2026-10-12 (2, then 9, then 16 tests passed).
+- [ ] Implementation plan approved by the owner
+- [ ] Phase 0: engine skeleton (expected 2 tests)
+- [ ] Phase 1: part-kit format (expected 16)
+- [ ] Phase 2: part geometry (expected 29)
+- [ ] Phase 3: panels, flattening, seams (expected 42)
+- [ ] Phase 4: stuffing correction (expected 48)
+- [ ] Phase 5: finishing and checks (expected 59)
+- [ ] Phase 6: outputs (expected 74)
+- [ ] Phase 7: projects and local service (expected 83)
+- [ ] Phase 8: picture reading (expected 85, plus live tests run with approval)
+- [ ] Phase 9: Angular front end (expected 10 Angular tests)
+- [ ] Phase 10: documentation and end-to-end run
 
-## Open items waiting on the owner
+## Open items waiting on the owner (approval gates in the plan)
 
-- Choose the vision model from OpenRouter's list (needed when the picture-reading step is built).
-- Approve the starting values for the tolerances, minimum turnable size, seam allowance and fabric width (they will be proposed in the plan).
+- G1: allow hand-written part kits as test-only inputs (before Phase 1).
+- G2: approve each starting value in `engine/settings.toml` (before Phase 3).
+- G3: choose the vision model from OpenRouter's list (Phase 8).
+- G4: supply real pictures and approve the live reading test (Phase 8).
+- G5: approve the end-to-end run with a real picture (Phase 10).
 - Optional: approval to run `npm audit` (it sends the dependency list to the npm registry).
 
 ## Known issues in the existing app (being replaced, not patched)
