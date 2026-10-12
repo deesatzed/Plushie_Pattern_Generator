@@ -93,8 +93,8 @@ __pycache__/
 
 **Step 2: Check the ignore rules**
 
-Run: `git check-ignore -v engine/.venv projects/x engine/plush/__pycache__`
-Expected: three lines, each naming `.gitignore`.
+Run: `git check-ignore -v engine/.venv/pyvenv.cfg engine/plush/__pycache__/settings.cpython-313.pyc engine/.pytest_cache/README.md projects/x`
+Expected: four lines, each naming `.gitignore`. Use paths inside the folders: patterns ending in `/` match only directories, so a bare path to a folder that doesn't exist yet prints nothing. This was corrected during execution on 2026-10-12.
 
 **Step 3: Commit**
 

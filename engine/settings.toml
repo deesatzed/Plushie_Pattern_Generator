@@ -1,0 +1,22 @@
+# Pattern settings and check tolerances (US Letter, inches).
+# Starting values PROPOSED 2026-10-12; none has been validated by sewing.
+# Set approved_by_owner = true only after the owner approves each value.
+
+[status]
+approved_by_owner = false
+
+[pattern]
+seam_allowance_in = 0.25
+min_turnable_width_in = 0.625
+fabric_width_in = 44.0
+notch_spacing_in = 2.0
+
+[tolerances]
+seam_length_diff_in = 0.03125
+max_flatten_stretch = 0.03
+stuffed_mean_deviation = 0.03
+stuffed_max_deviation = 0.08
+
+[pdf]
+test_square_in = 2.0
+tile_overlap_in = 0.5
