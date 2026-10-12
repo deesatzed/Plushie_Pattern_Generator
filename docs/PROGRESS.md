@@ -12,6 +12,7 @@ Read this file and `git log` before starting any work session.
 - [x] Phase 0: engine skeleton. 2026-10-12: `cd engine && uv run pytest -q` gave 2 passed, 0 failed, 0 skipped.
 - [x] Phase 1: part-kit format. 2026-10-12: 16 passed, 0 failed, 0 skipped.
 - [x] Phase 2: part geometry. 2026-10-12: 35 passed, 0 failed, 0 skipped. Added the `rtree` dependency and two kit rules: reserved `_left`/`_right` ids, and pairs only on symmetric parts.
+- [x] Gate G2: owner approved all starting values in `engine/settings.toml` (2026-10-12).
 - [ ] Phase 3: panels, flattening, seams (expected 48)
 - [ ] Phase 4: stuffing correction (expected 54)
 - [ ] Phase 5: finishing and checks (expected 65)
@@ -23,7 +24,6 @@ Read this file and `git log` before starting any work session.
 
 ## Open items waiting on the owner (approval gates in the plan)
 
-- G2: approve each starting value in `engine/settings.toml` (before Phase 3).
 - G3: choose the vision model from OpenRouter's list (Phase 8).
 - G4: supply real pictures and approve the live reading test (Phase 8).
 - G5: approve the end-to-end run with a real picture (Phase 10).

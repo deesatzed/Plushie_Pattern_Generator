@@ -1,9 +1,10 @@
 # Pattern settings and check tolerances (US Letter, inches).
-# Starting values PROPOSED 2026-10-12; none has been validated by sewing.
-# Set approved_by_owner = true only after the owner approves each value.
+# Starting values proposed 2026-10-12 and approved by the owner the same day
+# (gate G2). None has been validated by sewing; change any value here and
+# re-run the checks.
 
 [status]
-approved_by_owner = false
+approved_by_owner = true
 
 [pattern]
 seam_allowance_in = 0.25

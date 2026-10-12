@@ -5,7 +5,7 @@ from plush.settings import SETTINGS_PATH, load_settings
 
 def test_settings_file_loads_with_positive_values():
     s = load_settings()
-    assert s.approved_by_owner is False  # flips only after owner approval
+    assert s.approved_by_owner is True  # owner approved the values (gate G2, 2026-10-12)
     for name in (
         "seam_allowance_in", "min_turnable_width_in", "fabric_width_in",
         "notch_spacing_in", "seam_length_diff_in", "max_flatten_stretch",
