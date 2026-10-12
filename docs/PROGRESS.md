@@ -14,7 +14,7 @@ Read this file and `git log` before starting any work session.
 - [x] Phase 2: part geometry. 2026-10-12: 35 passed, 0 failed, 0 skipped. Added the `rtree` dependency and two kit rules: reserved `_left`/`_right` ids, and pairs only on symmetric parts.
 - [x] Gate G2: owner approved all starting values in `engine/settings.toml` (2026-10-12).
 - [x] Phase 3: panels, flattening, seams. 2026-10-12: 51 passed, 0 failed, 0 skipped. The test bear's panels: body 8 gores + base, head 10 gores, arm 8 strips, ear front + back; worst stretch 2.92%; seam sides match within 0.000006 in.
-- [x] Phase 4: stuffing correction. 2026-10-12: 58 passed, 0 failed, 0 skipped (full run takes about 56 s). The Mylar balloon check passes within 3% (in the dry-run, a 2.20% rim and 1.88% thickness error at the default 2-stage stiffness; 3 stages are now used).
+- [x] Phase 4: stuffing correction. 2026-10-12: 58 passed, 0 failed, 0 skipped (full run takes about 56 s). Mylar balloon check, measured 2026-10-12 at stiffness stages (1e2, 1e3, 1e4): rim radius 1.96% from the published value, thickness 0.06%, worst fabric stretch 0.154%. The test limit is 3%.
   - Task 4.3 gore comparison, from `cd engine && uv run python tools/gore_comparison.py` (2026-10-12):
 
     | Shape | Gores | Flattening stretch (check 4, limit 3%) | Stuffed deviation mean / worst (check 3, limits 3% / 8%) | Passes 3 / 4 |
