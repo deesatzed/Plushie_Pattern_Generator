@@ -103,3 +103,23 @@ def test_rejects_attachment_loop():
     with pytest.raises(ValidationError, match="attachment loop"):
         parse_kit(json.dumps(kit))
 
+
+
+def test_rejects_pair_on_a_part_that_is_not_symmetric():
+    kit = bear()
+    kit["parts"].append(
+        {"kind": "limb", "id": "claw", "name": "Claw", "colour": "#FFFFFF", "pair": True,
+         "length": 0.03, "start_thickness": 0.02, "end_thickness": 0.01, "end_shape": "point",
+         "attach": {"parent": "arm", "azimuth_deg": 30, "elevation_deg": 0}})
+    with pytest.raises(ValidationError, match="must attach to a symmetric part"):
+        parse_kit(json.dumps(kit))
+
+
+def test_rejects_ids_ending_in_left_or_right():
+    kit = bear()
+    part(kit, "head")["id"] = "head_left"
+    for p in kit["parts"]:
+        if p.get("attach", {}).get("parent") == "head":
+            p["attach"]["parent"] = "head_left"
+    with pytest.raises(ValidationError, match="may not end in _left or _right"):
+        parse_kit(json.dumps(kit))

@@ -117,6 +117,9 @@ class Kit(BaseModel):
         dupes = sorted({i for i in ids if ids.count(i) > 1})
         if dupes:
             raise ValueError(f"duplicate part ids: {dupes}")
+        reserved = sorted(i for i in ids if i.endswith(("_left", "_right")))
+        if reserved:
+            raise ValueError(f"part ids may not end in _left or _right (used for pairs): {reserved}")
 
         roots = [p for p in self.parts if p.attach is None]
         if len(roots) != 1:
@@ -133,8 +136,6 @@ class Kit(BaseModel):
                 raise ValueError(f"part {p.id!r} attaches to unknown part {p.attach.parent!r}")
             if parent.kind == "surface_feature":
                 raise ValueError(f"part {p.id!r} cannot attach to surface feature {parent.id!r}")
-            if p.pair and not 1 <= abs(p.attach.azimuth_deg) <= 179:
-                raise ValueError(f"paired part {p.id!r} must sit off the centre line")
 
         for p in self.parts:
             seen: set[str] = set()
@@ -144,7 +145,31 @@ class Kit(BaseModel):
                     raise ValueError(f"attachment loop involving part {p.id!r}")
                 seen.add(cur.id)
                 cur = by_id[cur.attach.parent]
+
+        for p in self.parts:
+            if not p.pair:
+                continue
+            if not 1 <= abs(p.attach.azimuth_deg) <= 179:
+                raise ValueError(f"paired part {p.id!r} must sit off the centre line")
+            if not _is_symmetric(by_id[p.attach.parent], by_id):
+                raise ValueError(
+                    f"paired part {p.id!r} must attach to a symmetric part "
+                    "(one on the centre line, not turned, and not itself paired)"
+                )
         return self
+
+
+def _is_symmetric(part, by_id) -> bool:
+    """True if the part and all its ancestors sit on the centre line, unturned and unpaired.
+
+    Left/right twins are mirrored across the centre plane, which is only
+    correct when everything they hang from is itself mirror-symmetric.
+    """
+    while part.attach is not None:
+        if part.pair or part.attach.yaw_deg != 0 or abs(part.attach.azimuth_deg) not in (0, 180):
+            return False
+        part = by_id[part.attach.parent]
+    return True
 
 
 def parse_kit(raw: str | bytes) -> Kit:
