@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Elegant handcrafted workshop additions */
+body {
+  font-family: var(--font-sans);
+  background-color: #FAF9F6; /* Cozy craft paper white */
+}
+
+/* Custom running sewing stitch animation */
+@keyframes runStitch {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.running-stitch {
+  stroke-dasharray: 6, 4;
+}
+
+/* Printer-Friendly CSS Rules */
+@media print {
+  /* Explicitly hide non-printable UI chrome */
+  header, 
+  footer, 
+  .no-print, 
+  button, 
+  input, 
+  select, 
+  textarea, 
+  [role="button"], 
+  .accent-neutral-900,
+  nav,
+  .step-wizard-container {
+    display: none !important;
+  }
+
+  /* Force clean physical paper sheets */
+  body, html {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #171717 !important;
+    font-size: 11pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Force browser to print background graphic colors & borders accurately */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Prevent awkward mid-element page slicing */
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Force custom clean page breaks for physical layout separation */
+  .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Plushie Pattern Generator",
+  "description": "An interactive tool to generate custom sewing patterns for stuffed animals from images of cartoon characters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

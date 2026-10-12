@@ -1,0 +1,1361 @@
+<!-- Root sewing companion container -->
+<div class="min-h-screen bg-[#FAF9F6] text-neutral-800 flex flex-col selection:bg-neutral-200">
+  
+  <!-- Main Workshop Ribbon -->
+  @if (!isPrintMode()) {
+    <header class="bg-white border-b border-dashed border-neutral-200 py-4 px-6 md:px-12 flex justify-between items-center shadow-xs">
+      <div class="flex items-center space-x-3">
+        <div class="p-2 bg-neutral-900 text-white rounded-lg flex items-center justify-center">
+          <mat-icon class="text-xl">timeline</mat-icon>
+        </div>
+        <div>
+          <h1 class="text-xl font-sans font-medium tracking-tight text-neutral-900">Pattern Craft Room</h1>
+          <p class="text-xs text-neutral-500 font-mono">Sewing Machinery Companion</p>
+        </div>
+      </div>
+
+      @if (isAuthed()) {
+        <div class="flex items-center space-x-4">
+          <div class="hidden sm:flex items-center space-x-2 bg-neutral-100 px-3 py-1.5 rounded-full border border-neutral-200">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-xs font-medium font-mono text-neutral-700">
+              {{ profileName() }} · <span class="text-neutral-500 font-normal capitalize">{{ profileLevel() }}</span>
+            </span>
+          </div>
+          
+          <button (click)="logout()" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-50 text-red-600 transition">
+            <mat-icon class="text-sm">logout</mat-icon>
+            <span>Sign Out</span>
+          </button>
+        </div>
+      }
+    </header>
+  }
+
+  <!-- Step wizard progress tracker -->
+  @if (isAuthed() && currentStep() !== 'desk' && !isPrintMode()) {
+    <div class="bg-white border-b border-neutral-200 py-3 px-6 overflow-x-auto">
+      <div class="max-w-7xl mx-auto flex items-center space-x-2 md:space-x-4 text-xs font-mono font-medium text-neutral-400 whitespace-nowrap">
+        
+        <button (click)="currentStep.set('desk')" class="hover:text-neutral-900 flex items-center space-x-1">
+          <mat-icon class="text-xs">dashboard</mat-icon>
+          <span>Desk Home</span>
+        </button>
+
+        <span class="text-neutral-300">/</span>
+
+        <span [class.text-neutral-900]="currentStep() === 'image-gather'" class="flex items-center space-x-1">
+          <span class="w-5 h-5 rounded-full border flex items-center justify-center border-neutral-300 text-[10px]" [class.bg-neutral-900]="currentStep() === 'image-gather'" [class.text-white]="currentStep() === 'image-gather'">1</span>
+          <span>Blueprints Blueprint</span>
+        </span>
+
+        <span class="text-neutral-300">→</span>
+
+        <span [class.text-neutral-900]="currentStep() === 'complexity'" class="flex items-center space-x-1">
+          <span class="w-5 h-5 rounded-full border flex items-center justify-center border-neutral-300 text-[10px]" [class.bg-neutral-900]="currentStep() === 'complexity'" [class.text-white]="currentStep() === 'complexity'">2</span>
+          <span>Evaluate Seams</span>
+        </span>
+
+        <span class="text-neutral-300">→</span>
+
+        <span [class.text-neutral-900]="currentStep() === 'preview'" class="flex items-center space-x-1">
+          <span class="w-5 h-5 rounded-full border flex items-center justify-center border-neutral-300 text-[10px]" [class.bg-neutral-900]="currentStep() === 'preview'" [class.text-white]="currentStep() === 'preview'">3</span>
+          <span>Preview Salon</span>
+        </span>
+
+        <span class="text-neutral-300">→</span>
+
+        <span [class.text-neutral-950]="currentStep() === 'guide'" class="flex items-center space-x-1">
+          <span class="w-5 h-5 rounded-full border flex items-center justify-center border-neutral-300 text-[10px]" [class.bg-neutral-900]="currentStep() === 'guide'" [class.text-white]="currentStep() === 'guide'">4</span>
+          <span>Craft Patterns</span>
+        </span>
+      </div>
+    </div>
+  }
+
+  <!-- Main layout frame -->
+  <main class="flex-grow w-full mx-auto flex flex-col justify-center transition-all duration-300" [class.p-4]="!isPrintMode()" [class.md:p-8]="!isPrintMode()" [class.p-0]="isPrintMode()" [class.max-w-7xl]="!isPrintMode()" [class.max-w-4xl]="isPrintMode()">
+
+    <!-- 1. AUTHENTICATION ROUTE -->
+    @if (currentStep() === 'auth') {
+      <div id="auth-panel" class="max-w-md w-full mx-auto bg-white p-8 rounded-2xl shadow-sm border border-neutral-200 relative overflow-hidden">
+        
+        <!-- Crafts background accents -->
+        <div class="absolute top-0 left-0 right-0 h-1.5 bg-neutral-900"></div>
+        <div class="absolute -right-12 -bottom-12 w-32 h-32 opacity-5 pointer-events-none">
+          <mat-icon class="text-[120px]">architecture</mat-icon>
+        </div>
+
+        <div class="text-center mb-8">
+          <div class="inline-flex p-3 bg-neutral-100 rounded-full text-neutral-800 mb-3 border border-neutral-200">
+            <mat-icon class="text-3xl">architecture</mat-icon>
+          </div>
+          <h2 class="text-2xl font-sans font-medium text-neutral-950 tracking-tight">Your Custom Pattern Room</h2>
+          <p class="text-sm text-neutral-500 mt-1">Ready your needles. Build custom patterns utilizing Gemini 3.5 Flash intelligence.</p>
+        </div>
+
+        <form #authForm="ngForm" (ngSubmit)="login(loginNameInput(), levelSelect.value)" class="space-y-5">
+          <div>
+            <span class="block text-xs font-mono font-medium text-neutral-600 mb-1">CRAFT PROFILE NAME</span>
+            <div class="relative">
+              <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-400">
+                <mat-icon class="text-sm">face</mat-icon>
+              </span>
+              <input [value]="loginNameInput()" (input)="loginNameInput.set($any($event.target).value)" required type="text" placeholder="Alice The Tailor" class="block w-full pl-9 pr-4 py-2.5 bg-neutral-50 border border-neutral-300 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-1 focus:ring-neutral-900 transition" />
+            </div>
+          </div>
+
+          <div>
+            <span class="block text-xs font-mono font-medium text-neutral-600 mb-1">SEWING MACHINE EXPERIENCE</span>
+            <div class="relative">
+              <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-400">
+                <mat-icon class="text-sm">tune</mat-icon>
+              </span>
+              <select #levelSelect class="block w-full pl-9 pr-4 py-2.5 bg-neutral-50 border border-neutral-300 rounded-xl text-sm focus:bg-white focus:outline-none focus:ring-1 focus:ring-neutral-900 transition">
+                <option value="Novice">Novice (Fresh on the sewing machine)</option>
+                <option value="Hobbyist">Hobbyist (Can stitch curves reliably)</option>
+                <option value="Artisan">Artisan (Seamstress-level expert)</option>
+              </select>
+            </div>
+          </div>
+
+          <button type="submit" [disabled]="!loginNameInput().trim()" class="w-full flex items-center justify-center space-x-2 bg-neutral-900 text-white py-3 rounded-xl hover:bg-neutral-800 font-medium text-sm transition shadow-sm disabled:opacity-50">
+            <mat-icon>login</mat-icon>
+            <span>Open Sewing Bench</span>
+          </button>
+        </form>
+
+        <div class="mt-6 pt-5 border-t border-dashed border-neutral-200 text-center">
+          <p class="text-[11px] font-mono text-neutral-400">Saves securely to local browser bench profile.</p>
+        </div>
+      </div>
+    }
+
+    <!-- 2. WORKSPACE DESK HOMEPAGE -->
+    @else if (currentStep() === 'desk') {
+      <div id="desk-panel" class="space-y-8 animate-fade-in">
+        
+        <!-- Welcome Jumbotron with stitches -->
+        <div class="bg-white border border-neutral-200 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center relative overflow-hidden shadow-xs">
+          <!-- Sew running-stitch frame border -->
+          <div class="absolute inset-1.5 border border-dashed border-neutral-200 rounded-xl pointer-events-none"></div>
+
+          <div class="space-y-2 relative z-10">
+            <h2 class="text-2xl md:text-3xl font-sans font-medium tracking-tight text-neutral-950">Welcome, {{ profileName() }}!</h2>
+            <p class="text-sm text-neutral-600 max-w-xl">
+              This is your pattern engineering bench. Craft bespoke custom plush dolls, manage stencil blueprints, and generate detailed step sewing instructions tailored to your experience.
+            </p>
+            <div class="flex flex-wrap gap-2 pt-2">
+              <span class="inline-flex items-center space-x-1 px-2.5 py-1 bg-yellow-50 text-yellow-800 text-[11px] font-mono font-medium rounded-md border border-yellow-200">
+                <mat-icon class="text-xs">badge</mat-icon>
+                <span>{{ profileLevel() }} Stretcher Badge</span>
+              </span>
+              <span class="inline-flex items-center space-x-1 px-2.5 py-1 bg-neutral-100 text-neutral-700 text-[11px] font-mono rounded-md">
+                <span>Active Projects: {{ savedProjects().length }}</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="mt-6 md:mt-0 relative z-10 w-full md:w-auto">
+            <button (click)="startNewProject()" class="w-full md:w-auto flex items-center justify-center space-x-2 bg-neutral-900 text-white px-5 py-3 rounded-xl hover:bg-neutral-800 transition font-medium text-sm shadow-sm">
+              <mat-icon>add_circle_outline</mat-icon>
+              <span>Build New Plushie Guide</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Saved projects layout -->
+        <div class="space-y-4">
+          <div class="flex items-center justify-between border-b border-neutral-200 pb-2">
+            <h3 class="font-mono text-xs font-semibold text-neutral-500 uppercase tracking-wider">Your Stored Patterns</h3>
+            <span class="text-xs text-neutral-400 font-mono">Durable Local Storage Pool</span>
+          </div>
+
+          @if (savedProjects().length === 0) {
+            <div class="bg-white border-2 border-dashed border-neutral-300 rounded-2xl p-12 text-center text-neutral-500">
+              <mat-icon class="text-4xl text-neutral-300 mb-3">shopping_basket</mat-icon>
+              <h4 class="font-medium text-neutral-800 mb-1">Your sewing basket is empty.</h4>
+              <p class="text-xs max-w-xs mx-auto mb-4">Start a new pattern from character sketches or prompts, and they'll save automatically!</p>
+              <button (click)="startNewProject()" class="inline-flex items-center space-x-2 border border-neutral-300 hover:bg-neutral-50 px-4 py-2 rounded-xl text-xs font-medium text-neutral-700 transition">
+                <mat-icon class="text-xs">rocket_launch</mat-icon>
+                <span>Draft a Character Pattern</span>
+              </button>
+            </div>
+          } @else {
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              @for (proj of savedProjects(); track proj.id) {
+                <div (click)="resumeProject(proj)" (keydown.enter)="resumeProject(proj)" role="button" tabindex="0" class="group bg-white rounded-xl border border-neutral-200 hover:border-neutral-900 cursor-pointer overflow-hidden transition relative flex flex-col justify-between shadow-xs">
+                  
+                  <div class="p-5 space-y-4">
+                    <!-- Header with title -->
+                    <div class="flex justify-between items-start">
+                      <div>
+                        <h4 class="font-sans font-medium text-neutral-900 group-hover:text-neutral-950 text-base leading-tight">{{ proj.title }}</h4>
+                        <p class="text-[11px] font-mono text-neutral-400 mt-1">Drafted {{ proj.createdAt }}</p>
+                      </div>
+                      
+                      <button (click)="deleteProject(proj.id, $event)" class="text-neutral-400 hover:text-red-600 p-1 rounded-sm hover:bg-red-50 transition" title="Discard draft">
+                        <mat-icon class="text-sm">delete_outline</mat-icon>
+                      </button>
+                    </div>
+
+                    <!-- Images previews thumbnail strip -->
+                    <div class="flex items-center space-x-1.5 overflow-hidden">
+                      @if (proj.imageUrls.length === 0) {
+                        <div class="w-12 h-12 rounded bg-neutral-100 flex items-center justify-center text-neutral-300 text-xs">No pics</div>
+                      } @else {
+                        @for (img of proj.imageUrls.slice(0, 3); track $index) {
+                          <div class="w-12 h-12 rounded overflow-hidden relative border border-neutral-100 flex-shrink-0">
+                            <img [src]="img" class="object-cover w-full h-full" referrerpolicy="no-referrer" alt="thumb"/>
+                          </div>
+                        }
+                        @if (proj.imageUrls.length > 3) {
+                          <div class="text-[11px] font-mono font-medium text-neutral-400 pl-2">+{{ proj.imageUrls.length - 3 }} views</div>
+                        }
+                      }
+                    </div>
+
+                    <!-- Meta specs -->
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      @if (proj.difficulty) {
+                        <span class="text-[10px] font-mono px-2 py-0.5 bg-neutral-100 text-neutral-700 rounded select-none uppercase font-semibold">
+                          {{ proj.difficulty }}
+                        </span>
+                      }
+                      @if (proj.estimatedTime) {
+                        <span class="text-[10px] font-mono px-2 py-0.5 bg-neutral-50 text-neutral-600 rounded select-none">
+                          {{ proj.estimatedTime }}
+                        </span>
+                      }
+                    </div>
+                  </div>
+
+                  <!-- Footer indicating step finished -->
+                  <div class="bg-neutral-50 border-t border-neutral-100 px-5 py-3 flex justify-between items-center text-xs">
+                    <span class="text-neutral-500 font-mono">
+                      @if (proj.buildGuide) {
+                        Active Guide Complete
+                      } @else if (proj.outcomePreviewUrl) {
+                        In Outcome Preview
+                      } @else if (proj.difficulty) {
+                        Customizing Choices
+                      } @else {
+                        Uploading references
+                      }
+                    </span>
+                    <span class="text-neutral-900 group-hover:translate-x-1.5 transition duration-200 font-medium flex items-center space-x-0.5">
+                      <span>Resume</span>
+                      <mat-icon class="font-bold text-xs select-none">chevron_right</mat-icon>
+                    </span>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- 3. STEP 1: REFERENCE IMAGE GATHER -->
+    @else if (currentStep() === 'image-gather') {
+      <div id="image-gather-panel" class="space-y-6 max-w-5xl mx-auto animate-fade-in">
+        
+        <div class="border-b border-neutral-200 pb-3 flex flex-col md:flex-row justify-between items-start md:items-center">
+          <div>
+            <h2 class="text-2xl font-sans font-medium text-neutral-950 tracking-tight">Gather Reference Blueprints</h2>
+            <p class="text-sm text-neutral-500">Provide character drawings. Specify angles, front/side views or utilize our AI illustration engine.</p>
+          </div>
+          <button (click)="currentStep.set('desk')" class="mt-2 md:mt-0 flex items-center space-x-1 text-xs font-mono text-neutral-500 hover:text-neutral-800 transition">
+            <mat-icon class="text-xs">arrow_back</mat-icon>
+            <span>Cancel & Back</span>
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
+          
+          <!-- Upload and prompt columns left half -->
+          <div class="md:col-span-5 space-y-6">
+            
+            <!-- A. Upload local sheets -->
+            <div class="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs relative">
+              <h3 class="text-sm font-sans font-semibold text-neutral-950 mb-1 flex items-center space-x-1.5">
+                <mat-icon class="text-sm">photo_camera</mat-icon>
+                <span>Upload From Computer</span>
+              </h3>
+              <p class="text-xs text-neutral-500 mb-4">Snap cartoon sketches, multi-view references, or fabric blueprints.</p>
+              
+              <div class="border-2 border-dashed border-neutral-300 rounded-xl p-5 hover:border-neutral-800 transition text-center relative pointer-events-auto">
+                <input type="file" multiple accept="image/*" (change)="onUserImagesSelected($event)" class="absolute inset-0 opacity-0 cursor-pointer" />
+                <mat-icon class="text-3xl text-neutral-400 mb-1.5">upload_file</mat-icon>
+                <p class="text-xs font-medium text-neutral-700">Drag & Drop or Choose Image Files</p>
+                <p class="text-[10px] text-neutral-400 mt-1 font-mono">Accepts PNG, JPG, JPEG (Supports multi-angle uploads)</p>
+              </div>
+            </div>
+
+            <!-- B. Prompt Generative Loom -->
+            <div class="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs">
+              <h3 class="text-sm font-sans font-semibold text-neutral-950 mb-1 flex items-center space-x-1.5">
+                <mat-icon class="text-sm">wb_twilight</mat-icon>
+                <span>AI Concept Weaver</span>
+              </h3>
+              <p class="text-xs text-neutral-500 mb-4">Have an idea but no drawings? Describe your toy concept and we'll weave design sheets.</p>
+
+              <div class="space-y-4">
+                <textarea [value]="ideaPrompt()" (input)="ideaPrompt.set($any($event.target).value)" 
+                  placeholder="e.g. A fat round pastel pink sheep with circular spiral horns, cute mallow doll style" 
+                  class="block w-full text-xs p-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-neutral-900 transition h-20 leading-relaxed resize-none"></textarea>
+                
+                <button (click)="generateReferenceImage(ideaPrompt())" [disabled]="isGeneratingIdea() || !ideaPrompt().trim()" class="w-full flex items-center justify-center space-x-1.5 bg-neutral-900 text-white hover:bg-neutral-800 py-2.5 rounded-xl font-medium text-xs transition">
+                  @if (isGeneratingIdea()) {
+                    <span class="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                    <span>Stitching Concept Drawing...</span>
+                  } @else {
+                    <mat-icon class="text-xs">brush</mat-icon>
+                    <span>Weave Image Blueprint</span>
+                  }
+                </button>
+
+                <!-- Preloaded Prompt Presets -->
+                <div class="space-y-1.5 mt-3 pt-3 border-t border-dashed border-neutral-100">
+                  <p class="text-[10px] font-mono font-medium text-neutral-400">INSTANT WEAVE SUGGESTIONS:</p>
+                  <div class="flex flex-wrap gap-1">
+                    @for (item of presets; track item.label) {
+                      <button (click)="generateReferenceImage(item.prompt)" [disabled]="isGeneratingIdea()" class="text-[10px] font-mono bg-neutral-100 hover:bg-neutral-200 text-neutral-700 px-2 py-1 rounded border border-neutral-200 transition">
+                        + {{ item.label }}
+                      </button>
+                    }
+                  </div>
+                </div>
+
+                @if (ideaMessage()) {
+                  <p class="text-[11px] font-mono text-emerald-600 bg-emerald-50 border border-emerald-200 p-2 rounded-lg animate-fade-in">
+                    {{ ideaMessage() }}
+                  </p>
+                }
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Selection pool columns right half -->
+          <div class="md:col-span-7 space-y-6">
+            <div class="bg-white p-6 rounded-2xl border border-neutral-200 shadow-xs h-full flex flex-col justify-between">
+              
+              <div class="space-y-4">
+                <div class="flex justify-between items-center pb-2 border-b border-neutral-100">
+                  <h3 class="text-sm font-sans font-semibold text-neutral-950 flex items-center space-x-1.5">
+                    <mat-icon class="text-sm">grid_view</mat-icon>
+                    <span>Draft Reference Collection</span>
+                  </h3>
+                  <span class="text-xs font-mono text-neutral-500">Highlight 2-3 images</span>
+                </div>
+
+                @if (activeProject() && activeProject()!.imageUrls.length === 0) {
+                  <div class="py-16 text-center text-neutral-400">
+                    <mat-icon class="text-5xl text-neutral-200 mb-3 font-light">collections</mat-icon>
+                    <p class="text-sm">No design sketch cards in draft yet.</p>
+                    <p class="text-xs text-neutral-400 max-w-xs mx-auto mt-1">Upload reference drawings or write a description on the left hand panel to spool stencil choices!</p>
+                  </div>
+                } @else {
+                  <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    @for (img of activeProject()!.imageUrls; track $index) {
+                      @let isSelected = activeProject()!.selectedIndexes.includes($index);
+                      <button type="button" (click)="toggleImageSelection($index)" [class.border-neutral-900]="isSelected" [class.ring-2]="isSelected" [class.ring-neutral-950]="isSelected" class="group aspect-square rounded-xl border border-neutral-300 bg-neutral-50 overflow-hidden relative cursor-pointer hover:border-neutral-500 select-none transition text-left block w-full">
+                        
+                        <img [src]="img" class="object-cover w-full h-full" referrerpolicy="no-referrer" alt="reference view"/>
+                        
+                        <div class="absolute inset-x-0 bottom-0 bg-black/60 p-1.5 flex justify-between items-center text-[10px] text-white">
+                          <span class="font-mono">View #{{ $index + 1 }}</span>
+                          <span class="w-4.5 h-4.5 rounded-full border border-white flex items-center justify-center" [class.bg-neutral-900]="isSelected" [class.border-neutral-900]="isSelected">
+                            @if (isSelected) {
+                              <mat-icon class="text-[9px] text-white font-bold">check</mat-icon>
+                            }
+                          </span>
+                        </div>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+
+              <!-- Action triggers to analyze -->
+              <div class="pt-6 border-t border-neutral-100 space-y-3">
+                <div class="flex justify-between items-center text-xs font-mono text-neutral-500">
+                  <span>Selected Pattern Blueprints:</span>
+                  <span class="font-bold text-neutral-900">{{ activeProject()?.selectedIndexes?.length || 0 }} Piece(s)</span>
+                </div>
+
+                <div class="flex space-x-3">
+                  <button (click)="currentStep.set('desk')" class="px-4 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl text-xs font-semibold transition">
+                    Save Draft & Back
+                  </button>
+
+                  <button (click)="evaluateComplexity()" [disabled]="isAnalyzing() || !activeProject() || activeProject()!.selectedIndexes.length === 0" class="flex-grow flex items-center justify-center space-x-2 bg-neutral-900 hover:bg-neutral-800 text-white py-3 rounded-xl font-semibold text-xs transition disabled:opacity-50 shadow-sm relative">
+                    @if (isAnalyzing()) {
+                      <span class="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                      <span>Threading Gemini Seam Analysis Engine...</span>
+                    } @else {
+                      <mat-icon class="text-xs">analytics</mat-icon>
+                      <span>Analyze Seam Complexity [Gemini 3.5]</span>
+                    }
+                  </button>
+                </div>
+                
+                @if (isAnalyzing()) {
+                  <p class="text-[11px] font-mono text-center text-neutral-400 italic animate-pulse">
+                    Please wait: We are tracing contours, assessing wool panels, and generating customization options...
+                  </p>
+                }
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    }
+
+    <!-- 4. STEP 2: COMPLEXITY & OPTIONS EVALUATION -->
+    @else if (currentStep() === 'complexity') {
+      @let proj = activeProject();
+      @if (proj) {
+        <div id="complexity-panel" class="space-y-6 max-w-5xl mx-auto animate-fade-in">
+          
+          <div class="border-b border-neutral-200 pb-3 flex justify-between items-center">
+            <div>
+              <h2 class="text-2xl font-sans font-medium text-neutral-950 tracking-tight">Evaluate Fabric Blueprint Specs</h2>
+              <p class="text-sm text-neutral-500">Gemini 3.5 traced seams and mapped fabric volume guidelines safely.</p>
+            </div>
+            
+            <button (click)="currentStep.set('image-gather')" class="text-xs font-mono text-neutral-500 hover:text-neutral-800 transition flex items-center space-x-1">
+              <mat-icon class="text-xs">arrow_back</mat-icon>
+              <span>Sketches Room</span>
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
+            
+            <!-- Specs panel readout -->
+            <div class="md:col-span-4 space-y-6">
+              
+              <!-- A. Core difficulty layout card -->
+              <div class="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs space-y-4">
+                
+                <div class="pb-3 border-b border-neutral-100 flex justify-between items-center">
+                  <h3 class="text-xs font-mono font-bold text-neutral-400">STITCH ASSESSMENT</h3>
+                  <span class="px-2.5 py-1 bg-neutral-900 text-white font-mono text-xs font-bold rounded capitalize">
+                    {{ proj.difficulty }}
+                  </span>
+                </div>
+
+                <div class="space-y-1">
+                  <span class="text-[10px] font-mono font-medium text-neutral-400 block">ESTIMATED TIME NEEDED</span>
+                  <p class="text-sm text-neutral-800 font-semibold flex items-center space-x-1">
+                    <mat-icon class="text-sm text-neutral-500">schedule</mat-icon>
+                    <span>{{ proj.estimatedTime }}</span>
+                  </p>
+                </div>
+
+                <div class="space-y-1">
+                  <span class="text-[10px] font-mono font-medium text-neutral-400 block">DIFFICULTY EXPLANATION</span>
+                  <p class="text-xs text-neutral-600 leading-relaxed">{{ proj.difficultyReasoning }}</p>
+                </div>
+
+                <div class="space-y-1 bg-neutral-50 p-3 rounded-xl border border-neutral-200">
+                  <span class="text-[10px] font-mono font-medium text-neutral-500 block">MACHINERY ADVISORY</span>
+                  <p class="text-xs text-neutral-600 mt-1 leading-normal">{{ proj.sewingMachineVsHand }}</p>
+                </div>
+
+              </div>
+
+              <!-- B. Fabric yards blueprint -->
+              <div class="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs space-y-4">
+                <h3 class="text-xs font-mono font-bold text-neutral-450 flex items-center space-x-1">
+                  <mat-icon class="text-xs">layers</mat-icon>
+                  <span>FABRIC MATERIALS</span>
+                </h3>
+
+                <div class="space-y-3">
+                  @for (fab of proj.requiredFabrics; track $index) {
+                    <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-100 flex items-center justify-between">
+                      <div>
+                        <p class="text-xs font-semibold text-neutral-800">{{ fab.fabricName }}</p>
+                        <p class="text-[11px] text-neutral-500 font-mono">{{ fab.textureRecommendation }}</p>
+                      </div>
+                      <div class="text-right">
+                        <span class="inline-block text-[11px] font-mono px-2 py-0.5 bg-neutral-100 text-neutral-700 border border-neutral-300 rounded">
+                          {{ fab.amountRequired }}
+                        </span>
+                        <div class="text-[10px] text-neutral-400 font-mono mt-0.5 capitalize">Color: {{ fab.color }}</div>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Adaptation Choices Panel right columns -->
+            <div class="md:col-span-8 space-y-6">
+              <div class="bg-white p-6 rounded-2xl border border-neutral-200 shadow-xs h-full flex flex-col justify-between">
+                
+                <div class="space-y-6">
+                  
+                  <div class="pb-3 border-b border-neutral-100 flex justify-between items-center">
+                    <h3 class="text-sm font-sans font-semibold text-neutral-950 flex items-center space-x-1.5">
+                      <mat-icon class="text-sm">tune</mat-icon>
+                      <span>Personalize Sewing Adaptations</span>
+                    </h3>
+                    <span class="text-xs font-mono text-neutral-450">Fleece customizations</span>
+                  </div>
+
+                  <!-- Choices generator form mapped from Gemini analysis -->
+                  <div class="space-y-5">
+                    @if (proj.cuttingPieces && proj.cuttingPieces.length > 0) {
+                      <div class="p-4 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl flex items-center space-x-3 text-xs leading-relaxed">
+                        <mat-icon class="text-lg">view_in_ar</mat-icon>
+                        <div>
+                          <strong>Gemini traced {{ proj.cuttingPieces.length }} distinct templates pieces.</strong> Pre-assembling the stencils coordinate layout roll now. You can adjust specifics immediately below.
+                        </div>
+                      </div>
+                    }
+
+                    @if (proj.customizationOptions && proj.customizationOptions.length > 0) {
+                      <!-- We render custom option parameters dynamically generated by Gemini -->
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        @for (opt of proj.customizationOptions; track opt.optionId) {
+                          <div class="space-y-2 bg-[#FBFBFA] p-4 rounded-xl border border-dashed border-neutral-300">
+                            <span class="block text-xs font-sans font-semibold text-neutral-900 uppercase tracking-tight">{{ opt.optionTitle }}</span>
+                            
+                            <div class="flex flex-col space-y-1 text-xs">
+                              <select [value]="customizationValues()[opt.optionId] || opt.defaultValue" (change)="updateCustomValue(opt.optionId, $any($event.target).value)" 
+                                class="block w-full py-2 px-3 bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-neutral-950 text-xs transition">
+                                @for (choice of opt.choices; track choice) {
+                                  <option [value]="choice">{{ choice }}</option>
+                                }
+                              </select>
+                            </div>
+                            <p class="text-[10px] text-neutral-500 font-mono">{{ opt.description }}</p>
+                          </div>
+                        }
+                      </div>
+                    } @else if (hasCustomizations()) {
+                      <!-- We render custom option parameters mapped by Gemini (Fallback) -->
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        @for (opt of activeProject()?.customizations | keyvalue; track opt.key) {
+                          <div class="space-y-2 bg-[#FBFBFA] p-4 rounded-xl border border-dashed border-neutral-300">
+                            <span class="block text-xs font-sans font-semibold text-neutral-950 uppercase tracking-tight">{{ opt.key.replace('_', ' ').replace('-', ' ') }}</span>
+                            
+                            <div class="flex flex-col space-y-1 text-xs">
+                              <select [value]="opt.value" (change)="updateCustomValue(opt.key, $any($event.target).value)" 
+                                class="block w-full py-2 px-3 bg-white border border-neutral-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-neutral-950 text-xs transition">
+                                <option [value]="opt.value">{{ opt.value }}</option>
+                                <option value="Contrast Wool Border">Contrast Wood Felt Border</option>
+                                <option value="Safety Buttons Seams">Safety Button-Eyes Pattern</option>
+                                <option value="Integrated Seamless Hem">Integrated Seamless Hem</option>
+                              </select>
+                            </div>
+                            <p class="text-[10px] text-neutral-500 font-mono">Customizes finished physical outline details.</p>
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <div class="p-4 rounded-xl border border-dashed border-neutral-300 text-center text-xs text-neutral-500 font-mono">
+                        Generic customization slots activated. Use the refinement prompt below for bespoke tailoring guidelines!
+                      </div>
+                    }
+
+                    <!-- User custom refinement modifications prompt -->
+                    <div class="space-y-1.5 pt-4 border-t border-dotted border-neutral-200">
+                      <span class="block text-xs font-mono font-medium text-neutral-600 uppercase">ADDITIONAL CUSTOM REFINEMENT PROMPTS</span>
+                      <input [value]="extraRefinementPrompt()" (input)="extraRefinementPrompt.set($any($event.target).value)" placeholder="e.g. Make ears 30% larger, add a floppy bow ties item under neck..." class="block w-full text-xs p-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-neutral-900 transition leading-normal shadow-xs" />
+                      <p class="text-[10px] text-neutral-400 font-mono">Any bespoke alterations will be automatically tailored into the step guide & templates outlines.</p>
+                    </div>
+
+                  </div>
+
+                </div>
+
+                <!-- Footer controllers -->
+                <div class="pt-6 border-t border-neutral-150 flex space-x-3 mt-6">
+                  <button (click)="currentStep.set('image-gather')" class="px-5 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl text-xs font-semibold font-mono transition">
+                    Modify Reference Image
+                  </button>
+
+                  <button (click)="designOutcomePreview()" [disabled]="isGeneratingPreview()" class="flex-grow flex items-center justify-center space-x-1.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl text-xs font-bold transition shadow-sm">
+                    @if (isGeneratingPreview()) {
+                      <span class="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                      <span>Stitching Realistic Outcome Mockup...</span>
+                    } @else {
+                      <mat-icon class="text-xs">photo_library</mat-icon>
+                      <span>Review Faux-Plushie Preview Mockup</span>
+                    }
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      }
+    }
+
+    <!-- 5. STEP 3: OUTCOME PREVIEW SALON -->
+    @else if (currentStep() === 'preview') {
+      @let proj = activeProject();
+      @if (proj) {
+        <div id="preview-panel" class="space-y-6 max-w-4xl mx-auto animate-fade-in">
+          
+          <div class="border-b border-neutral-200 pb-3 flex justify-between items-center">
+            <div>
+              <h2 class="text-2xl font-sans font-medium text-neutral-950 tracking-tight">Review Faux-Plushie Outcome</h2>
+              <p class="text-sm text-neutral-500">Visual mockup of the finished stuffed doll based on customized choices.</p>
+            </div>
+            
+            <button (click)="currentStep.set('complexity')" class="text-xs font-mono text-neutral-500 hover:text-neutral-800 transition flex items-center space-x-1">
+              <mat-icon class="text-xs">arrow_back</mat-icon>
+              <span>Back to Complexity</span>
+            </button>
+          </div>
+
+          <!-- Sandbox result review panels -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center bg-white p-6 rounded-2xl border border-neutral-250 shadow-sm relative">
+            
+            <div class="absolute inset-1.5 border border-dashed border-neutral-200 rounded-xl pointer-events-none"></div>
+
+            <!-- Image outcome showcase -->
+            <div class="space-y-3 relative z-10">
+              <div class="rounded-xl overflow-hidden border border-neutral-300 shadow-md aspect-4/3 bg-neutral-100 flex items-center justify-center">
+                @if (proj.outcomePreviewUrl) {
+                  <img [src]="proj.outcomePreviewUrl" class="w-full h-full object-cover select-none" referrerpolicy="no-referrer" alt="finished model"/>
+                } @else {
+                  <div class="text-center text-neutral-400 text-xs">Generating mockup outcome picture...</div>
+                }
+              </div>
+              <p class="text-[11px] font-mono text-center text-neutral-500 italic">Realistic wool product render based on customizations</p>
+            </div>
+
+            <!-- Parameters review cards -->
+            <div class="space-y-5 relative z-10 flex flex-col justify-between h-full py-4">
+              <div class="space-y-4">
+                <span class="inline-flex px-3 py-1 bg-neutral-900 text-white font-mono text-xs font-bold rounded">Personalization Applied</span>
+                
+                <div class="space-y-2 text-xs">
+                  @for (opt of customizationValues() | keyvalue; track opt.key) {
+                    <div class="flex justify-between py-1.5 border-b border-dashed border-neutral-200">
+                      <span class="text-neutral-500 capitalize">{{ opt.key.replace('_', ' ').replace('-', ' ') }}:</span>
+                      <span class="font-bold text-neutral-800 font-mono">{{ opt.value }}</span>
+                    </div>
+                  }
+                  @if (extraRefinementPrompt()) {
+                    <div class="bg-neutral-50 p-3 rounded-lg border text-neutral-700 leading-relaxed font-mono text-[11px] mt-2">
+                      <strong>Refined Adjustment:</strong> "{{ extraRefinementPrompt() }}"
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Refinements tool box and triggers -->
+              <div class="pt-6 border-t border-neutral-200 space-y-4">
+                <div class="space-y-2">
+                  <span class="text-[10px] font-mono font-medium text-neutral-600 block">NOT QUITE PERFECT? ADJUST CUSTOMS:</span>
+                  <div class="flex space-x-2">
+                    <input [value]="extraRefinementPrompt()" (input)="extraRefinementPrompt.set($any($event.target).value)" placeholder="e.g. fluffier tail, larger safety buttons..." class="block flex-grow text-xs px-3 py-2 bg-neutral-50 border border-neutral-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-neutral-950 transition" />
+                    <button (click)="designOutcomePreview()" [disabled]="isGeneratingPreview()" class="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-bold font-mono rounded-lg transition">
+                      Adjust Mockup
+                    </button>
+                  </div>
+                </div>
+
+                <div class="flex space-x-3">
+                  <button (click)="currentStep.set('complexity')" class="px-4 py-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl text-xs font-semibold transition">
+                    Modify Specs
+                  </button>
+
+                  <button (click)="compileBuildGuide()" [disabled]="isGeneratingGuide()" class="flex-grow flex items-center justify-center space-x-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl text-xs font-bold py-3 transition shadow-md">
+                    @if (isGeneratingGuide()) {
+                      <span class="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                      <span>Drafting Thorough Patterns & Sewing Booklets...</span>
+                    } @else {
+                      <mat-icon class="text-xs font-bold">content_cut</mat-icon>
+                      <span>Generate Patterns & Step Guides</span>
+                    }
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      }
+    }
+
+    <!-- 6. STEP 4: SEWING WORKSHOP GUIDE DECK -->
+    @else if (currentStep() === 'guide') {
+      @let proj = activeProject();
+      @if (proj) {
+        @if (isPrintMode()) {
+          <!-- BEAUTIFUL PRINTER-FRIENDLY SINGLE-PAGE BOOKLET MANUAL -->
+          <div id="print-view-wrapper" class="w-full bg-white text-neutral-900 font-sans p-6 md:p-12 border border-neutral-300 rounded-3xl shadow-xs print:border-none print:shadow-none print:p-0 print:m-0 animate-fade-in relative">
+            
+            <!-- Floating helper navigation ribbon for screen-view (Hidden in physical print via CSS) -->
+            <div class="no-print bg-neutral-900 text-white rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-center mb-8 gap-4 shadow-sm border border-neutral-800 print:hidden select-none">
+              <div class="flex items-center space-x-3">
+                <div class="p-2 bg-emerald-500 text-white rounded-lg flex items-center justify-center">
+                  <mat-icon class="text-lg">print</mat-icon>
+                </div>
+                <div>
+                  <h4 class="text-sm font-semibold tracking-tight">Paper Manual Preview Mode</h4>
+                  <p class="text-xs text-neutral-400 font-mono">Bespoke single-page outline without web headers. Press Launch Print Dialog below to print on your desk paper.</p>
+                </div>
+              </div>
+              <div class="flex space-x-2">
+                <button (click)="triggerPrint()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-xs font-bold font-sans rounded-xl flex items-center space-x-1.5 transition cursor-pointer">
+                  <mat-icon class="text-sm">print</mat-icon>
+                  <span>Launch Print Dialog</span>
+                </button>
+                <button (click)="togglePrintMode()" class="bg-neutral-800 hover:bg-neutral-700 text-neutral-300 px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer">
+                  <span>Exit Printer Mode</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Page Title, Creator credentials and custom specifications header -->
+            <div class="border-b-2 border-neutral-900 pb-5 mb-6">
+              <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div>
+                  <span class="text-xs font-mono font-bold text-neutral-500 tracking-wider uppercase">TOY MAKER BUILD BLUEPRINT</span>
+                  <h1 class="text-3xl font-bold tracking-tight text-neutral-950 mt-1">{{ proj.title }}</h1>
+                </div>
+                <div class="text-left sm:text-right font-mono text-xs text-neutral-500">
+                  <p>Creator: <span class="font-bold text-neutral-850">{{ profileName() || 'Guest Artisan' }}</span></p>
+                  <p>Skills Level: <span class="font-bold text-neutral-850 capitalize">{{ profileLevel() }}</span></p>
+                  <p>Date Generated: 2026-06-01</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Double Columns: Left for metadata / specs list & preview, Right for recommendations -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 pb-6 border-b border-dashed border-neutral-200">
+              
+              <!-- Left Mini Column: Preview of Plushie & Applied Customisations -->
+              <div class="space-y-4 print-avoid-break">
+                <h3 class="text-sm font-bold text-neutral-900 uppercase tracking-tight font-mono pb-1 border-b border-neutral-200 flex items-center space-x-1.5">
+                  <mat-icon class="text-sm">brush</mat-icon>
+                  <span>1. Finished Pattern Specs</span>
+                </h3>
+                
+                @if (proj.outcomePreviewUrl) {
+                  <div class="border border-neutral-300 rounded-2xl overflow-hidden aspect-video bg-neutral-50 max-h-48 flex items-center justify-center">
+                    <img [src]="proj.outcomePreviewUrl" class="w-full h-full object-cover" referrerpolicy="no-referrer" alt="outcome Preview"/>
+                  </div>
+                }
+
+                @if (hasCustomizations()) {
+                  <div class="bg-neutral-50 p-3 rounded-xl border border-neutral-200 text-xs text-neutral-700 space-y-1">
+                    <p class="font-bold text-neutral-950 text-[11px] uppercase font-mono tracking-wider mb-2">Selected Tailor Variables:</p>
+                    @for (opt of customizationValues() | keyvalue; track opt.key) {
+                      <div class="flex justify-between py-1 border-b border-dotted border-neutral-200 last:border-none">
+                        <span class="capitalize font-mono text-[11px]">{{ opt.key.replace('_', ' ').replace('-', ' ') }}:</span>
+                        <span class="font-bold font-mono text-neutral-900">{{ opt.value }}</span>
+                      </div>
+                    }
+                  </div>
+                }
+
+                <div class="bg-neutral-50 p-3 rounded-xl border border-neutral-200 text-xs text-neutral-700 space-y-2 mt-2">
+                  <div class="flex justify-between items-center border-b border-dashed border-neutral-200 pb-1">
+                    <span class="font-mono text-[10px] text-neutral-500 uppercase">Complexity Rating:</span>
+                    <strong class="font-mono text-neutral-950 uppercase font-bold">{{ proj.difficulty || 'Novice' }}</strong>
+                  </div>
+                  <div class="flex justify-between items-center border-b border-dashed border-neutral-200 pb-1">
+                    <span class="font-mono text-[10px] text-neutral-500 uppercase">Estimated Time:</span>
+                    <strong class="font-mono text-neutral-950 font-bold">{{ proj.estimatedTime || 'N/A' }}</strong>
+                  </div>
+                  @if (proj.difficultyReasoning) {
+                    <p class="text-[11px] leading-relaxed text-neutral-600 font-sans mt-1"><strong>Stitch Assessment:</strong> {{ proj.difficultyReasoning }}</p>
+                  }
+                </div>
+              </div>
+
+              <!-- Right Mini Column: Recommended Sewing Machine Settings & Fabric requirements -->
+              <div class="space-y-4 print-avoid-break">
+                <h3 class="text-sm font-bold text-neutral-900 uppercase tracking-tight font-mono pb-1 border-b border-neutral-200 flex items-center space-x-1.5">
+                  <mat-icon class="text-sm">tune</mat-icon>
+                  <span>2. Sewing Machine Dials & Fabric</span>
+                </h3>
+
+                @if (proj.buildGuide?.sewingMachineSettings; as settings) {
+                  <div class="grid grid-cols-3 gap-2 text-xs font-mono">
+                    <div class="p-2 border rounded-xl bg-neutral-50 text-center">
+                      <span class="text-neutral-500 text-[10px] block uppercase">Tension</span>
+                      <strong class="text-neutral-900 font-bold block mt-1">{{ settings.tension }}</strong>
+                    </div>
+                    <div class="p-2 border rounded-xl bg-neutral-50 text-center">
+                      <span class="text-neutral-500 text-[10px] block uppercase">Stitch</span>
+                      <strong class="text-neutral-900 font-bold block mt-1">{{ settings.stitchType }}</strong>
+                    </div>
+                    <div class="p-2 border rounded-xl bg-neutral-50 text-center">
+                      <span class="text-neutral-500 text-[10px] block uppercase">Needle</span>
+                      <strong class="text-neutral-900 font-bold block mt-1 text-ellipsis overflow-hidden whitespace-nowrap">{{ settings.needleType }}</strong>
+                    </div>
+                  </div>
+                }
+
+                @if (proj.requiredFabrics && proj.requiredFabrics.length > 0) {
+                  <div class="p-3 border rounded-xl text-xs space-y-2">
+                    <p class="font-bold font-mono text-[10px] text-neutral-500 uppercase tracking-wider">FABRIC REQUIREMENTS MATERIALS CHECKLIST :</p>
+                    <ul class="space-y-1.5 pl-2">
+                      @for (fb of proj.requiredFabrics; track fb.fabricName) {
+                        <li class="list-disc list-inside leading-tight font-mono text-[11px]">
+                          {{ fb.amountRequired }} of <span class="font-bold text-neutral-900">{{ fb.fabricName }}</span> ({{ fb.color }})
+                          @if (fb.textureRecommendation) {
+                            <span class="text-neutral-500 block pl-5 text-[10px] leading-none">Texture: {{ fb.textureRecommendation }}</span>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  </div>
+                }
+              </div>
+
+            </div>
+
+            <!-- Sequential Booklet Guides - Clean Top-to-Bottom Layout -->
+            <div class="space-y-6 pt-2">
+              
+              <!-- PREP STEPS -->
+              <div class="print-avoid-break flex gap-4 items-start border-b border-neutral-200 pb-4">
+                <div class="flex-grow space-y-2.5">
+                  <h3 class="text-sm font-bold text-neutral-950 uppercase font-mono tracking-tight pb-1.5 border-b-2 border-neutral-900 flex items-center space-x-1">
+                    <span>3. STEP 1: PREPARATION & TRACING PATTERNS</span>
+                  </h3>
+                  <ul class="list-none space-y-2 pl-1">
+                    @for (prep of proj.buildGuide?.preparationSteps; track $index) {
+                      <li class="text-xs leading-relaxed text-neutral-700 flex items-start space-x-2">
+                        <span class="font-mono text-neutral-400 mr-2">[_]</span>
+                        <span>{{ prep }}</span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+                <!-- Illustration -->
+                <div class="w-24 h-24 flex-shrink-0 bg-neutral-50 rounded-lg border border-neutral-200 flex items-center justify-center p-1.5 print:border print:bg-white">
+                  <svg viewBox="0 0 100 100" class="w-full h-full text-neutral-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 20h80M10 40h80M10 60h80M10 80h80M20 10v80M40 10v80M60 10v80M80 10v80" stroke="#E5E5E5" stroke-width="1"/>
+                    <path d="M30 30 C 50 20, 70 20, 70 50 C 70 80, 30 80, 30 30" stroke="#E11D48" stroke-width="1.5" stroke-dasharray="3,3"/>
+                    <g transform="translate(60, 45) rotate(-30)">
+                      <path d="M0 -5 L30 -2 L2 -7 Z" fill="#D4D4D8" stroke="#71717A"/>
+                      <path d="M0 -9 L28 -12 L2 -7 Z" fill="#D4D4D8" stroke="#71717A"/>
+                      <circle cx="-5" cy="-3" r="5" fill="none" stroke="#262626" stroke-width="2"/>
+                      <circle cx="-5" cy="-11" r="5" fill="none" stroke="#262626" stroke-width="2"/>
+                    </g>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- ASSEMBLY STEPS -->
+              <div class="print-avoid-break pt-4 flex gap-4 items-start border-b border-neutral-200 pb-4">
+                <div class="flex-grow space-y-2.5">
+                  <h3 class="text-sm font-bold text-neutral-950 uppercase font-mono tracking-tight pb-1.5 border-b-2 border-neutral-900 flex items-center space-x-1">
+                    <span>4. STEP 2: STITCHING AND ASSEMBLY PROCEDURES</span>
+                  </h3>
+                  <ol class="list-none space-y-3 pl-1">
+                    @for (stitch of proj.buildGuide?.stitchingSteps; track $index) {
+                      <li class="text-xs leading-relaxed text-neutral-700 flex items-start space-x-2.5">
+                        <span class="font-mono px-1.5 py-0.5 bg-neutral-100 text-neutral-900 font-bold rounded text-[10px] mr-2">{{ $index + 1 }}</span>
+                        <span class="font-sans pt-0.5">{{ stitch }}</span>
+                      </li>
+                    }
+                  </ol>
+                </div>
+                <!-- Illustration -->
+                <div class="w-24 h-24 flex-shrink-0 bg-neutral-50 rounded-lg border border-neutral-200 flex items-center justify-center p-1.5 print:border print:bg-white">
+                  <svg viewBox="0 0 100 100" class="w-full h-full text-neutral-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M35 15h30v25H35z" fill="#F5F5F4" stroke="#78716C" stroke-width="1.5"/>
+                    <path d="M40 40v30h5V40M55 40v30h5V40" stroke="#78716C" stroke-width="1.5"/>
+                    <path d="M50 15V5" stroke="#78716C" stroke-width="3"/>
+                    <path d="M48 35v25" stroke="#262626" stroke-width="1.5"/>
+                    <path d="M30 55 Q 48 55 48 53 Q 48 50 65 45" stroke="#E11D48" stroke-width="1"/>
+                    <path d="M10 70h80" stroke="#CBD5E1" stroke-width="4"/>
+                    <path d="M15 70 C 35 70, 50 70, 85 70" stroke="#E11D48" stroke-width="1.5" stroke-dasharray="4,3"/>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- FINISHING AND CLOSURE STEPS -->
+              <div class="print-avoid-break pt-4 flex gap-4 items-start">
+                <div class="flex-grow space-y-2.5">
+                  <h3 class="text-sm font-bold text-neutral-950 uppercase font-mono tracking-tight pb-1.5 border-b-2 border-neutral-900 flex items-center space-x-1">
+                    <span>5. STEP 3: STUFFING, PACKING & CLOSING PROCEDURES</span>
+                  </h3>
+                  <ul class="list-none space-y-2 pl-1">
+                    @for (fine of proj.buildGuide?.finishingSteps; track $index) {
+                      <li class="text-xs leading-relaxed text-neutral-700 flex items-start space-x-2">
+                        <span class="font-mono text-neutral-400 mr-2">[_]</span>
+                        <span>{{ fine }}</span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+                <!-- Illustration -->
+                <div class="w-24 h-24 flex-shrink-0 bg-neutral-50 rounded-lg border border-neutral-200 flex items-center justify-center p-1.5 print:border print:bg-white">
+                  <svg viewBox="0 0 100 100" class="w-full h-full text-neutral-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M25 65 A 15 15 0 0 1 25 35 A 20 20 0 0 1 65 25 A 20 20 0 0 1 75 55 A 15 15 0 0 1 50 70 A 15 15 0 0 1 25 65 Z" fill="#F5F5F4" stroke="#78716C" stroke-width="2"/>
+                    <path d="M25 45h-8M30 35l-6-6M45 25v-8" stroke="#D4D4D8" stroke-dasharray="2,2"/>
+                    <g transform="translate(65, 45) rotate(45)">
+                      <path d="M0 -30 V10" stroke="#262626" stroke-width="1.5"/>
+                      <path d="M0 -15 Q 10 -15 15 -5" stroke="#E11D48" stroke-width="1"/>
+                    </g>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- STATIC HIGH-CONTRAST PATTERN OUTLINES GRID -->
+              <div class="print-avoid-break pt-6 space-y-4">
+                <h3 class="text-sm font-bold text-neutral-950 uppercase font-mono tracking-tight pb-1.5 border-b-2 border-neutral-900">
+                  6. STENCIL CUSTOM SEWING SHAPE OUTLINES (1:1 PHYSICAL PLACEMENT SCALE TYPE)
+                </h3>
+                <p class="text-[11px] leading-normal text-neutral-500 font-mono">
+                  Scale reference blueprint showing cutting patterns stencils on full-size fabric rollers. Use standard margins when tailoring fabric outlines physically:
+                </p>
+
+                <div class="border-2 border-neutral-900 rounded-2xl bg-white h-[380px] p-4 relative overflow-hidden flex items-center justify-center">
+                  <div class="absolute inset-0 pattern-grid opacity-10 pointer-events-none" style="background-image: radial-gradient(circle, #000 1px, transparent 1px); background-size: 15px 15px;"></div>
+                  
+                  <svg viewBox="0 0 800 450" class="w-full h-full block relative select-none">
+                    <!-- High contrast monochrome SVG rendering for physical stencil outline print -->
+                    @for (piece of proj.cuttingPieces; track piece.id) {
+                      <g>
+                        <g [attr.transform]="'translate(' + (piece.x) + ',' + (piece.y) + ') rotate(' + (piece.rotation) + ') scale(' + (piece.scale) + ')'">
+                          
+                          <!-- Render clean thick black outlines suitable for sharp black/white home printers -->
+                          @if (piece.shapeType === 'circle') {
+                            <circle cx="0" cy="0" [attr.r]="piece.width / 2" fill="none" stroke="#111111" stroke-width="2" stroke-dasharray="6,4" />
+                          } @else if (piece.shapeType === 'oval') {
+                            <ellipse cx="0" cy="0" [attr.rx]="piece.width / 2" [attr.ry]="piece.height / 2" fill="none" stroke="#111111" stroke-width="2" stroke-dasharray="6,4" />
+                          } @else if (piece.shapeType === 'triangle') {
+                            <polygon [attr.points]="'0,' + (-piece.height/2) + ' ' + (piece.width/2) + ',' + (piece.height/2) + ' ' + (-piece.width/2) + ',' + (piece.height/2)" fill="none" stroke="#111111" stroke-width="2" stroke-dasharray="6,4" />
+                          } @else if (piece.shapeType === 'shield') {
+                            <path [attr.d]="'M 0 ' + (-piece.height/2) + ' Q ' + (piece.width/2) + ' ' + (-piece.height/2) + ' ' + (piece.width/2) + ' 0 Q ' + (piece.width/2) + ' ' + (piece.height/2) + ' 0 ' + (piece.height/2) + ' Q ' + (-piece.width/2) + ' ' + (piece.height/2) + ' ' + (-piece.width/2) + ' 0 Q ' + (-piece.width/2) + ' ' + (-piece.height/2) + ' 0 ' + (-piece.height/2)" fill="none" stroke="#111111" stroke-width="2" stroke-dasharray="6,4" />
+                          } @else {
+                            <rect [attr.x]="-piece.width/2" [attr.y]="-piece.height/2" [attr.width]="piece.width" [attr.height]="piece.height" rx="8" fill="none" stroke="#111111" stroke-width="2" stroke-dasharray="6,4" />
+                          }
+
+                          <!-- Labels -->
+                          <text x="0" y="-8" text-anchor="middle" font-family="monospace" font-size="11" font-weight="extrabold" fill="#111111">{{ piece.label }}</text>
+                          <text x="0" y="8" text-anchor="middle" font-family="monospace" font-size="9" fill="#222222" font-weight="bold">CUT {{ piece.count }} UNITS</text>
+                        </g>
+                      </g>
+                    }
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Tailor's physical notes lines section for print page -->
+              <div class="print-avoid-break pt-8 pb-4 border-t border-dashed border-neutral-300 font-mono">
+                <span class="text-xs font-mono font-bold text-neutral-400 block uppercase mb-3">⚡ PHYSICAL SEWING STUDY & DESIGN NOTES (FOR HANDWRITTEN ANNOTATIONS) :</span>
+                <div class="space-y-4">
+                  <div class="border-b border-neutral-300/60 pb-1 h-5"></div>
+                  <div class="border-b border-neutral-300/60 pb-1 h-5"></div>
+                  <div class="border-b border-neutral-300/60 pb-1 h-5"></div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Footnote -->
+            <div class="mt-8 pt-4 border-t border-neutral-200 text-[10px] text-center font-mono text-neutral-400 flex justify-between items-center select-none">
+              <span>Bespoke Plushie Workshop Stencil Guide Booklet</span>
+              <span>Generated in Angular 21 Zoneless Workspace</span>
+            </div>
+
+          </div>
+        } @else {
+          <!-- INTERACTIVE STANDARD DESKTOP PANEL -->
+          <div id="guide-panel" class="space-y-6 max-w-7xl mx-auto animate-fade-in">
+            
+            <div class="border-b border-neutral-200 pb-3 flex flex-col md:flex-row justify-between items-start md:items-center">
+              <div>
+                <div class="flex items-center space-x-2">
+                  <span class="px-2 py-0.5 bg-neutral-900 text-white font-mono text-[9px] font-bold rounded uppercase">{{ proj.difficulty || 'Novice' }} Approved Pattern</span>
+                  <span class="text-xs text-neutral-400 font-mono">Durable Craft Pattern Draft</span>
+                </div>
+                <h2 class="text-2xl font-sans font-medium text-neutral-950 tracking-tight mt-1">{{ proj.title }}</h2>
+                <p class="text-sm text-neutral-500">Thorough directions booklet paired with reactive fabric layout coordinate stencils.</p>
+              </div>
+
+              <div class="mt-2 md:mt-0 flex space-x-2">
+                <button (click)="togglePrintMode()" class="flex items-center space-x-1 border border-neutral-300 bg-white hover:bg-neutral-50 px-3 py-2 rounded-xl text-xs font-semibold text-neutral-750 transition shadow-xs cursor-pointer">
+                  <mat-icon class="text-sm">print</mat-icon>
+                  <span>Print-Friendly Manual</span>
+                </button>
+
+                <button (click)="exportSewingProject()" class="flex items-center space-x-1 border border-neutral-300 bg-white hover:bg-neutral-50 px-3 py-2 rounded-xl text-xs font-semibold text-neutral-750 transition shadow-xs cursor-pointer">
+                  <mat-icon class="text-sm">download</mat-icon>
+                  <span>Export Blueprints File</span>
+                </button>
+
+                <button (click)="currentStep.set('desk')" class="flex items-center space-x-1 bg-neutral-900 text-white hover:bg-neutral-800 px-4 py-2 rounded-xl text-xs font-semibold transition shadow-xs cursor-pointer">
+                  <mat-icon class="text-sm">dashboard</mat-icon>
+                  <span>Back to My Bench Desk</span>
+                </button>
+              </div>
+            </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            
+            <!-- LEFT PANEL: Dynamic Sewing directions booklet -->
+            <div class="lg:col-span-6 space-y-6">
+              <div class="bg-white p-6 rounded-2xl border border-neutral-200 shadow-xs space-y-6">
+                
+                <h3 class="text-base font-sans font-semibold text-neutral-950 pb-2 border-b border-neutral-100 flex items-center space-x-1.5">
+                  <mat-icon class="text-sm font-bold text-neutral-500">library_books</mat-icon>
+                  <span>Sewing Manual Booklet</span>
+                </h3>
+
+                <!-- Sewing machine setup parameters -->
+                @if (proj.buildGuide?.sewingMachineSettings) {
+                  <div class="p-4 bg-amber-50 rounded-xl border border-amber-200 space-y-3">
+                    <h4 class="text-xs font-mono font-bold text-amber-900 uppercase tracking-tight flex items-center space-x-1">
+                      <mat-icon class="text-xs font-bold">settings_suggest</mat-icon>
+                      <span>RECOMMENDED SEWING MACHINE DIALS</span>
+                    </h4>
+                    
+                    <div class="grid grid-cols-3 gap-2.5 text-[11px]">
+                      <div class="space-y-0.5 bg-white/70 p-2 rounded-lg">
+                        <span class="text-amber-700 font-mono font-medium block">Tension Range</span>
+                        <p class="font-mono text-neutral-800 font-bold leading-tight mt-0.5">{{ proj.buildGuide?.sewingMachineSettings?.tension }}</p>
+                      </div>
+                      <div class="space-y-0.5 bg-white/70 p-2 rounded-lg">
+                        <span class="text-amber-700 font-mono font-medium block">Stitch Profile</span>
+                        <p class="font-mono text-neutral-800 font-bold leading-tight mt-0.5">{{ proj.buildGuide?.sewingMachineSettings?.stitchType }}</p>
+                      </div>
+                      <div class="space-y-0.5 bg-white/70 p-2 rounded-lg">
+                        <span class="text-amber-700 font-mono font-medium block">Needle Model</span>
+                        <p class="font-mono text-neutral-800 font-bold leading-tight mt-0.5">{{ proj.buildGuide?.sewingMachineSettings?.needleType }}</p>
+                      </div>
+                    </div>
+                  </div>
+                }
+
+                <!-- Tabs dynamic lists -->
+                <div class="space-y-5 text-sm leading-relaxed text-neutral-700">
+                  
+                  <!-- Preparation block -->
+                  <div class="flex flex-col sm:flex-row gap-4 items-start bg-neutral-50 p-4 rounded-xl border border-neutral-200">
+                    <div class="flex-grow space-y-2">
+                      <h4 class="font-sans font-bold text-neutral-900 border-l-2 border-neutral-900 pl-2">Step 1: Fabric Trace & Prep</h4>
+                      <p class="text-xs text-neutral-500 leading-normal">Before scissors touch fabric, accomplish these preparation measures:</p>
+                      <ul class="list-disc list-inside space-y-1.5 text-xs pl-2.5">
+                        @for (prep of proj.buildGuide?.preparationSteps; track $index) {
+                          <li>{{ prep }}</li>
+                        }
+                      </ul>
+                    </div>
+                    <!-- Illustration -->
+                    <div class="w-full sm:w-28 h-28 flex-shrink-0 bg-white rounded-lg border border-neutral-250 flex items-center justify-center p-2">
+                      <svg viewBox="0 0 100 100" class="w-full h-full text-neutral-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10 20h80M10 40h80M10 60h80M10 80h80M20 10v80M40 10v80M60 10v80M80 10v80" stroke="#E5E5E5" stroke-width="1"/>
+                        <path d="M30 30 C 50 20, 70 20, 70 50 C 70 80, 30 80, 30 30" stroke="#E11D48" stroke-width="1.5" stroke-dasharray="3,3"/>
+                        <g transform="translate(60, 45) rotate(-30)">
+                          <path d="M0 -5 L30 -2 L2 -7 Z" fill="#D4D4D8" stroke="#71717A"/>
+                          <path d="M0 -9 L28 -12 L2 -7 Z" fill="#D4D4D8" stroke="#71717A"/>
+                          <circle cx="-5" cy="-3" r="5" fill="none" stroke="#262626" stroke-width="2"/>
+                          <circle cx="-5" cy="-11" r="5" fill="none" stroke="#262626" stroke-width="2"/>
+                        </g>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <!-- Assembly Stitching steps -->
+                  <div class="flex flex-col sm:flex-row gap-4 items-start bg-neutral-50 p-4 rounded-xl border border-neutral-200">
+                    <div class="flex-grow space-y-2">
+                      <h4 class="font-sans font-bold text-neutral-900 border-l-2 border-neutral-900 pl-2">Step 2: Contours Seams Stitching Ordering</h4>
+                      <p class="text-xs text-neutral-500 leading-normal">Follow this exact step sequence on your sewing machine, placing panels right-sides-together (RST) safely:</p>
+                      <ol class="list-decimal list-inside space-y-2 text-xs pl-2.5">
+                        @for (stitch of proj.buildGuide?.stitchingSteps; track $index) {
+                          <li class="pl-1 leading-normal"><span class="font-sans text-neutral-700">{{ stitch }}</span></li>
+                        }
+                      </ol>
+                    </div>
+                    <!-- Illustration -->
+                    <div class="w-full sm:w-28 h-28 flex-shrink-0 bg-white rounded-lg border border-neutral-250 flex items-center justify-center p-2">
+                      <svg viewBox="0 0 100 100" class="w-full h-full text-neutral-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M35 15h30v25H35z" fill="#F5F5F4" stroke="#78716C" stroke-width="1.5"/>
+                        <path d="M40 40v30h5V40M55 40v30h5V40" stroke="#78716C" stroke-width="1.5"/>
+                        <path d="M50 15V5" stroke="#78716C" stroke-width="3"/>
+                        <path d="M48 35v25" stroke="#262626" stroke-width="1.5"/>
+                        <path d="M30 55 Q 48 55 48 53 Q 48 50 65 45" stroke="#E11D48" stroke-width="1"/>
+                        <path d="M10 70h80" stroke="#CBD5E1" stroke-width="4"/>
+                        <path d="M15 70 C 35 70, 50 70, 85 70" stroke="#E11D48" stroke-width="1.5" stroke-dasharray="4,3"/>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <!-- Stuffing and closing steps -->
+                  <div class="flex flex-col sm:flex-row gap-4 items-start bg-neutral-50 p-4 rounded-xl border border-neutral-200">
+                    <div class="flex-grow space-y-2">
+                      <h4 class="font-sans font-bold text-neutral-900 border-l-2 border-neutral-900 pl-2">Step 3: Stuffing, Weighting, & Closing</h4>
+                      <p class="text-xs text-neutral-500 leading-normal">Turning right-side-out and packing. Complete seam closes cleanly with standard ladder stitching guidelines:</p>
+                      <ul class="list-disc list-inside space-y-1.5 text-xs pl-2.5">
+                        @for (fine of proj.buildGuide?.finishingSteps; track $index) {
+                          <li>{{ fine }}</li>
+                        }
+                      </ul>
+                    </div>
+                    <!-- Illustration -->
+                    <div class="w-full sm:w-28 h-28 flex-shrink-0 bg-white rounded-lg border border-neutral-250 flex items-center justify-center p-2">
+                      <svg viewBox="0 0 100 100" class="w-full h-full text-neutral-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M25 65 A 15 15 0 0 1 25 35 A 20 20 0 0 1 65 25 A 20 20 0 0 1 75 55 A 15 15 0 0 1 50 70 A 15 15 0 0 1 25 65 Z" fill="#F5F5F4" stroke="#78716C" stroke-width="2"/>
+                        <path d="M25 45h-8M30 35l-6-6M45 25v-8" stroke="#D4D4D8" stroke-dasharray="2,2"/>
+                        <g transform="translate(65, 45) rotate(45)">
+                          <path d="M0 -30 V10" stroke="#262626" stroke-width="1.5"/>
+                          <path d="M0 -15 Q 10 -15 15 -5" stroke="#E11D48" stroke-width="1"/>
+                        </g>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <!-- Secrets pro secrets lists -->
+                  <div class="bg-neutral-50 p-4 rounded-xl border border-neutral-200 space-y-2">
+                    <h4 class="text-xs font-mono font-bold text-neutral-800 uppercase flex items-center space-x-1">
+                      <mat-icon class="text-xs">lightbulb</mat-icon>
+                      <span>Tailor's Pro Stretcher Secrets</span>
+                    </h4>
+                    <ul class="space-y-1 text-xs list-none pl-0 font-mono text-neutral-600">
+                      @for (tip of proj.buildGuide?.tailoringProTips; track $index) {
+                        <li class="flex items-start space-x-1.5">
+                          <span class="text-neutral-400">⚡</span>
+                          <span>{{ tip }}</span>
+                        </li>
+                      }
+                    </ul>
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+
+            <!-- RIGHT PANEL: Master Cut layout blueprint fabric roller -->
+            <div class="lg:col-span-6 space-y-6">
+              <div class="bg-white p-6 rounded-2xl border border-neutral-200 shadow-xs space-y-4">
+                
+                <div class="pb-1 flex justify-between items-center">
+                  <h3 class="text-base font-sans font-semibold text-neutral-950 flex items-center space-x-1.5">
+                    <mat-icon class="text-sm font-bold text-neutral-500">grid_on</mat-icon>
+                    <span>Tailors Interactive Cutting Board</span>
+                  </h3>
+                  <span class="text-[10px] text-neutral-500 font-mono uppercase bg-neutral-100 border border-neutral-200 px-2.5 py-1 rounded">Interactive Roller Bolt</span>
+                </div>
+                
+                <p class="text-xs text-neutral-500 leading-relaxed mb-4">
+                  This board represents a physical folded yard of fleece fabric. Click stencil shapes to select, then slide the tuning coordinates below to arrange template positions cleanly to avoid fabric waste!
+                </p>
+
+                <!-- Global Canvas Utility Bar -->
+                <div class="flex flex-wrap items-center justify-between gap-3 bg-neutral-50 p-3 rounded-xl border border-neutral-200 text-xs shadow-xs mb-3">
+                  <div class="flex flex-wrap items-center gap-4">
+                    <!-- Toggle labels checkbox -->
+                    <label class="flex items-center space-x-1.5 cursor-pointer select-none">
+                      <input type="checkbox" [checked]="showLabels()" (change)="showLabels.set(!showLabels())" class="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-950 focus:ring-1" />
+                      <span class="font-sans text-neutral-700 font-medium">Show Labels</span>
+                    </label>
+
+                    <!-- Toggle Snap to grid checkbox -->
+                    <label class="flex items-center space-x-1.5 cursor-pointer select-none">
+                      <input type="checkbox" [checked]="snapToGrid()" (change)="snapToGrid.set(!snapToGrid())" class="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-950 focus:ring-1" />
+                      <span class="font-sans text-neutral-700 font-medium">Snap to Grid (20px)</span>
+                    </label>
+
+                    <!-- Toggle Seam Allowance checkbox -->
+                    <label class="flex items-center space-x-1.5 cursor-pointer select-none border-t pt-1.5 sm:border-t-0 sm:pt-0 sm:border-l sm:pl-4 border-neutral-200">
+                      <input type="checkbox" [checked]="showSeamAllowance()" (change)="showSeamAllowance.set(!showSeamAllowance())" class="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-950 focus:ring-1" />
+                      <span class="font-sans text-neutral-700 font-medium flex items-center gap-1.5 flex-row">
+                        <span>Seam Allowance</span>
+                        <span class="px-1.5 py-0.5 bg-neutral-200 text-neutral-800 text-[10px] font-mono rounded">Dotted Red Line</span>
+                      </span>
+                    </label>
+
+                    @if (showSeamAllowance()) {
+                      <div class="flex items-center space-x-2 border-l border-neutral-200 pl-4">
+                        <span class="text-neutral-500 font-mono text-[10px]">Size:</span>
+                        <input type="range" min="4" max="16" step="1" [value]="seamAllowanceSize()" (input)="seamAllowanceSize.set($any($event.target).valueAsNumber)" class="w-16 accent-neutral-900 h-1 cursor-pointer" />
+                        <span class="font-mono text-[10px] font-bold text-neutral-700">{{ seamAllowanceSize() }}px</span>
+                      </div>
+                    }
+                  </div>
+
+                  <!-- Fit to grid buttons -->
+                  <div class="flex items-center space-x-2">
+                    <button type="button" (click)="fitAllPiecesToGrid()" class="px-2.5 py-1 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-lg text-[10px] font-sans font-medium text-neutral-700 transition flex items-center space-x-1 cursor-pointer shadow-2xs">
+                      <mat-icon class="text-xs !w-3.5 !h-3.5 !text-[14px]">grid_on</mat-icon>
+                      <span>Fit All to Grid</span>
+                    </button>
+                    @if (activePieceId()) {
+                      <button type="button" (click)="fitPieceToGrid()" class="px-2.5 py-1 bg-neutral-950 hover:bg-neutral-850 text-white rounded-lg text-[10px] font-sans font-semibold transition flex items-center space-x-1 cursor-pointer">
+                        <mat-icon class="text-xs !w-3.5 !h-3.5 !text-[14px]">align_horizontal_center</mat-icon>
+                        <span>Fit Selected</span>
+                      </button>
+                    }
+                  </div>
+                </div>
+
+                <!-- Fabric stencil graphic SVG arena -->
+                <div class="border border-neutral-300 rounded-xl overflow-hidden relative shadow-inner bg-[#EFECE6] h-[340px] md:h-[400px]">
+                  
+                  <!-- Soft fabric grid texture backdrop grid lines -->
+                  <div class="absolute inset-0 pattern-grid opacity-15 pointer-events-none" style="background-image: radial-gradient(circle, #78716C 1px, transparent 1px); background-size: 20px 20px;"></div>
+                  
+                  <svg viewBox="0 0 800 450" class="w-full h-full block relative select-none">
+                    <!-- SVG patterns drawing templates pieces -->
+                    @for (piece of proj.cuttingPieces; track piece.id) {
+                      @let isPieceSelected = activePieceId() === piece.id;
+                      <g (click)="selectPatternPiece(piece.id)" (keydown.enter)="selectPatternPiece(piece.id)" tabindex="0" role="button" class="cursor-pointer group transition duration-150">
+                        
+                        <!-- Translate coordinates of each piece -->
+                        <g [attr.transform]="'translate(' + (piece.x) + ',' + (piece.y) + ') rotate(' + (piece.rotation) + ') scale(' + (piece.scale) + ')'">
+                          
+                          <!-- Dynamic outline geometry render -->
+                          @if (piece.shapeType === 'circle') {
+                            <circle cx="0" cy="0" [attr.r]="piece.width / 2" [attr.fill]="piece.color" fill-opacity="0.8" [attr.stroke]="isPieceSelected ? '#000000' : '#475569'" [attr.stroke-width]="isPieceSelected ? '3' : '1.5'" class="running-stitch transition" stroke-dasharray="5,3" />
+                          } @else if (piece.shapeType === 'oval') {
+                            <ellipse cx="0" cy="0" [attr.rx]="piece.width / 2" [attr.ry]="piece.height / 2" [attr.fill]="piece.color" fill-opacity="0.8" [attr.stroke]="isPieceSelected ? '#000000' : '#475569'" [attr.stroke-width]="isPieceSelected ? '3' : '1.5'" class="running-stitch transition" stroke-dasharray="5,3" />
+                          } @else if (piece.shapeType === 'triangle') {
+                            <polygon [attr.points]="'0,' + (-piece.height/2) + ' ' + (piece.width/2) + ',' + (piece.height/2) + ' ' + (-piece.width/2) + ',' + (piece.height/2)" [attr.fill]="piece.color" fill-opacity="0.8" [attr.stroke]="isPieceSelected ? '#000000' : '#475569'" [attr.stroke-width]="isPieceSelected ? '3' : '1.5'" class="running-stitch transition" stroke-dasharray="5,3" />
+                          } @else if (piece.shapeType === 'shield') {
+                            <path [attr.d]="'M 0 ' + (-piece.height/2) + ' Q ' + (piece.width/2) + ' ' + (-piece.height/2) + ' ' + (piece.width/2) + ' 0 Q ' + (piece.width/2) + ' ' + (piece.height/2) + ' 0 ' + (piece.height/2) + ' Q ' + (-piece.width/2) + ' ' + (piece.height/2) + ' ' + (-piece.width/2) + ' 0 Q ' + (-piece.width/2) + ' ' + (-piece.height/2) + ' 0 ' + (-piece.height/2)" [attr.fill]="piece.color" fill-opacity="0.8" [attr.stroke]="isPieceSelected ? '#000000' : '#475569'" [attr.stroke-width]="isPieceSelected ? '3' : '1.5'" class="running-stitch transition" stroke-dasharray="5,3" />
+                          } @else {
+                            <!-- default rect -->
+                            <rect [attr.x]="-piece.width/2" [attr.y]="-piece.height/2" [attr.width]="piece.width" [attr.height]="piece.height" rx="8" [attr.fill]="piece.color" fill-opacity="0.8" [attr.stroke]="isPieceSelected ? '#000000' : '#475569'" [attr.stroke-width]="isPieceSelected ? '3' : '1.5'" class="running-stitch transition" stroke-dasharray="5,3" />
+                          }
+
+                          <!-- Seam Allowance Stitching Boundaries Overlay -->
+                          @if (showSeamAllowance()) {
+                            @if (piece.shapeType === 'circle') {
+                              <circle cx="0" cy="0" [attr.r]="getInsetCircleR(piece.width)" fill="none" stroke="#DC2626" stroke-width="1.2" stroke-dasharray="3,2" class="opacity-80 animate-fade-in" />
+                            } @else if (piece.shapeType === 'oval') {
+                              <ellipse cx="0" cy="0" [attr.rx]="getInsetOvalRx(piece.width)" [attr.ry]="getInsetOvalRy(piece.height)" fill="none" stroke="#DC2626" stroke-width="1.2" stroke-dasharray="3,2" class="opacity-80 animate-fade-in" />
+                            } @else if (piece.shapeType === 'triangle') {
+                              <polygon [attr.points]="getInsetTrianglePoints(piece.width, piece.height)" fill="none" stroke="#DC2626" stroke-width="1.2" stroke-dasharray="3,2" class="opacity-80 animate-fade-in" />
+                            } @else if (piece.shapeType === 'shield') {
+                              <path [attr.d]="getInsetShieldD(piece.width, piece.height)" fill="none" stroke="#DC2626" stroke-width="1.2" stroke-dasharray="3,2" class="opacity-80 animate-fade-in" />
+                            } @else {
+                              <rect [attr.x]="getInsetRectX(piece.width)" [attr.y]="getInsetRectY(piece.height)" [attr.width]="getInsetRectW(piece.width)" [attr.height]="getInsetRectH(piece.height)" rx="6" fill="none" stroke="#DC2626" stroke-width="1.2" stroke-dasharray="3,2" class="opacity-80 animate-fade-in" />
+                            }
+                          }
+
+                          <!-- Piece Label specs printing -->
+                          @if (showLabels()) {
+                            <text x="0" y="-8" text-anchor="middle" font-family="monospace" font-size="10" font-weight="bold" fill="#0F172A" class="font-semibold">{{ piece.label }}</text>
+                            <text x="0" y="8" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569" class="uppercase font-medium">Cut {{ piece.count }} pcs</text>
+                          }
+                        </g>
+
+                      </g>
+                    }
+                  </svg>
+
+                  <!-- Empty state selector banner if none selected -->
+                  @if (!activePieceId()) {
+                    <div class="absolute bottom-3 left-3 bg-white/95 px-3 py-1.5 rounded-lg border text-[11px] font-mono text-neutral-700 shadow-sm pointer-events-none">
+                      💡 Click any shape stencil on the canvas to activate tailor tools.
+                    </div>
+                  }
+                </div>
+
+                <!-- Stitch adjustments ranges controller cockpit -->
+                <div class="p-4 bg-neutral-50 rounded-xl border border-neutral-300 space-y-4">
+                  <div class="flex justify-between items-center border-b border-neutral-200 pb-2">
+                    <h4 class="text-xs font-mono font-bold text-neutral-800 flex items-center space-x-1">
+                      <mat-icon class="text-xs font-bold">handyman</mat-icon>
+                      <span>PATTERN TRANSLATION CONTROLS</span>
+                    </h4>
+                    @if (selectedPiece(); as active) {
+                      <span class="text-[10px] font-mono font-bold text-neutral-900 capitalize">{{ active.name }}</span>
+                    } @else {
+                      <span class="text-[10px] font-mono text-neutral-450 italic">No design active</span>
+                    }
+                  </div>
+
+                  @if (selectedPiece(); as active) {
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+                      
+                      <!-- Slider X coord -->
+                      <div class="space-y-1">
+                        <div class="flex justify-between text-[11px] text-neutral-600">
+                          <span>Left <-> Right Position (X):</span>
+                          <span class="font-bold font-mono">{{ active.x }}px</span>
+                        </div>
+                        <input type="range" min="50" max="750" [value]="active.x" (input)="updatePiecePos('x', $any($event.target).valueAsNumber)" class="w-full accent-neutral-900 cursor-pointer" />
+                      </div>
+
+                      <!-- Slider Y coord -->
+                      <div class="space-y-1">
+                        <div class="flex justify-between text-[11px] text-neutral-600">
+                          <span>Up <-> Down Position (Y):</span>
+                          <span class="font-bold font-mono">{{ active.y }}px</span>
+                        </div>
+                        <input type="range" min="50" max="400" [value]="active.y" (input)="updatePiecePos('y', $any($event.target).valueAsNumber)" class="w-full accent-neutral-900 cursor-pointer" />
+                      </div>
+
+                      <!-- Slider Rotation skew -->
+                      <div class="space-y-1">
+                        <div class="flex justify-between text-[11px] text-neutral-600">
+                          <span>Rotation Degrees (R):</span>
+                          <span class="font-bold font-mono">{{ active.rotation }}°</span>
+                        </div>
+                        <input type="range" min="0" max="360" [value]="active.rotation" (input)="updatePiecePos('rotation', $any($event.target).valueAsNumber)" class="w-full accent-neutral-900 cursor-pointer" />
+                      </div>
+
+                      <!-- Slider Scale sizing -->
+                      <div class="space-y-1">
+                        <div class="flex justify-between text-[11px] text-neutral-600">
+                          <span>Template Size (S):</span>
+                          <span class="font-bold font-mono">{{ (active.scale * 100) | number:'1.0-0' }}%</span>
+                        </div>
+                        <input type="range" min="0.5" max="1.8" step="0.1" [value]="active.scale" (input)="updatePiecePos('scale', $any($event.target).valueAsNumber)" class="w-full accent-neutral-900 cursor-pointer" />
+                      </div>
+
+                    </div>
+                  } @else {
+                    <div class="py-6 text-center text-xs text-neutral-450 italic font-mono">
+                      Select a pattern layout cutout shape inside the fabric area to modify its alignment specs safely.
+                    </div>
+                  }
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+        }
+      }
+    }
+
+  </main>
+
+  <!-- Sewing-bench styled footer decoration -->
+  @if (!isPrintMode()) {
+    <footer class="bg-white border-t border-dashed border-neutral-200 py-6 px-12 text-center text-xs text-neutral-450 font-mono">
+      <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center space-y-3 md:space-y-0">
+        <div class="flex items-center space-x-2">
+          <span class="block w-2.5 h-2.5 bg-neutral-900 animate-pulse rounded-full"></span>
+          <span>Virtual Sewing Workroom · Active & Secured Cabinet</span>
+        </div>
+        <div>
+          <span>Handcrafted with Gemini 3.5 & Angular 21 zoneless architectures</span>
+        </div>
+      </div>
+    </footer>
+  }
+
+</div>
