@@ -104,7 +104,6 @@ def test_rejects_attachment_loop():
         parse_kit(json.dumps(kit))
 
 
-
 def test_rejects_pair_on_a_part_that_is_not_symmetric():
     kit = bear()
     kit["parts"].append(

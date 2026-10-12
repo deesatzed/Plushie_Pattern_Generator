@@ -11,7 +11,7 @@ Read this file and `git log` before starting any work session.
 - [x] Implementation plan approved by the owner (2026-10-12), together with gate G1 (hand-written test-only kits). Work happens on branch `feat/part-kit-v1`.
 - [x] Phase 0: engine skeleton. 2026-10-12: `cd engine && uv run pytest -q` gave 2 passed, 0 failed, 0 skipped.
 - [x] Phase 1: part-kit format. 2026-10-12: 16 passed, 0 failed, 0 skipped.
-- [ ] Phase 2: part geometry (expected 35; expanded in the plan 2026-10-12)
+- [x] Phase 2: part geometry. 2026-10-12: 35 passed, 0 failed, 0 skipped. Added the `rtree` dependency and two kit rules: reserved `_left`/`_right` ids, and pairs only on symmetric parts.
 - [ ] Phase 3: panels, flattening, seams (expected 48)
 - [ ] Phase 4: stuffing correction (expected 54)
 - [ ] Phase 5: finishing and checks (expected 65)
