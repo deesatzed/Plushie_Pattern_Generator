@@ -43,21 +43,27 @@ def flatten(vertices: np.ndarray, faces: np.ndarray) -> Flattened:
     return flatten_together([(vertices, faces)], [])[0]
 
 
-def flatten_together(meshes: list[tuple[np.ndarray, np.ndarray]], links: list[SeamLink]) -> list[Flattened]:
-    starts, x0, edge_sets, lengths = [], [], [], []
+def flatten_together(
+    meshes: list[tuple[np.ndarray, np.ndarray]],
+    links: list[SeamLink],
+    lengths: list[np.ndarray] | None = None,
+) -> list[Flattened]:
+    """Flatten several panels at once. `lengths` (optional, per panel, in igl.edges order) replaces
+    the 3D edge lengths as the target, which the stuffing correction uses."""
+    starts, x0, edge_sets, targets = [], [], [], []
     offset = 0
-    for V, F in meshes:
+    for i, (V, F) in enumerate(meshes):
         V, F = np.asarray(V, float), np.asarray(F, np.int64)
         E = igl.edges(F)
-        L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1)
+        L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1) if lengths is None else np.asarray(lengths[i], float)
         x0.append(_initial_uv(V, F, E, L))
         starts.append(offset)
         edge_sets.append(E + offset)
-        lengths.append(L)
+        targets.append(L)
         offset += len(V)
 
     E_all = np.vstack(edge_sets)
-    L_all = np.concatenate(lengths)
+    L_all = np.concatenate(targets)
     pairs_a, pairs_b, pair_len = [], [], []
     for link in links:
         ga, gb = link.a_chain + starts[link.a_panel], link.b_chain + starts[link.b_panel]
@@ -73,7 +79,7 @@ def flatten_together(meshes: list[tuple[np.ndarray, np.ndarray]], links: list[Se
     uv_all = x.reshape(-1, 2)
 
     out = []
-    for (V, F), start, E, L in zip(meshes, starts, edge_sets, lengths):
+    for (V, F), start, E, L in zip(meshes, starts, edge_sets, targets):
         uv = uv_all[start : start + len(V)].copy()
         F = np.asarray(F, np.int64)
         if _signed_area(uv, F) < 0:  # keep the outside of the fabric facing up
