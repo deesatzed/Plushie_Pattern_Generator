@@ -14,11 +14,11 @@ Read this file and `git log` before starting any work session.
 - [x] Phase 2: part geometry. 2026-10-12: 35 passed, 0 failed, 0 skipped. Added the `rtree` dependency and two kit rules: reserved `_left`/`_right` ids, and pairs only on symmetric parts.
 - [x] Gate G2: owner approved all starting values in `engine/settings.toml` (2026-10-12).
 - [x] Phase 3: panels, flattening, seams. 2026-10-12: 51 passed, 0 failed, 0 skipped. The test bear's panels: body 8 gores + base, head 10 gores, arm 8 strips, ear front + back; worst stretch 2.92%; seam sides match within 0.000006 in.
-- [ ] Phase 4: stuffing correction (expected 57)
-- [ ] Phase 5: finishing and checks (expected 68)
-- [ ] Phase 6: outputs (expected 83)
-- [ ] Phase 7: projects and local service (expected 92)
-- [ ] Phase 8: picture reading (expected 94, plus live tests run with approval)
+- [ ] Phase 4: stuffing correction (expected 58; expanded in the plan 2026-10-12)
+- [ ] Phase 5: finishing and checks (expected 69)
+- [ ] Phase 6: outputs (expected 84)
+- [ ] Phase 7: projects and local service (expected 93)
+- [ ] Phase 8: picture reading (expected 95, plus live tests run with approval)
 - [ ] Phase 9: Angular front end (expected 10 Angular tests)
 - [ ] Phase 10: documentation and end-to-end run
 

@@ -65,7 +65,7 @@ All Python packages were installed and imported on this Mac (M4 Pro, Python 3.13
 
 | End of phase | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|---|
-| Tests | 2 | 16 | 35 | 51 | 57 | 68 | 83 | 92 | 94 |
+| Tests | 2 | 16 | 35 | 51 | 58 | 69 | 84 | 93 | 95 |
 
 If a phase's expansion changes its test count, update this table in the same commit.
 
@@ -2830,27 +2830,640 @@ Add "Phase 3 done: 51 passed, 0 failed, 0 skipped" with the date to `docs/PROGRE
 
 ## Phase 4: Stuffing correction
 
-**Task 4.0: Expand.**
+**Task 4.0: Expand. Done 2026-10-12.** Developed and run in a scratch copy first: 58 passed.
 
-**Task 4.1: `engine/plush/inflate.py`**
+Measured while expanding:
+- **Edge springs can't model fabric here.** A first model with tension-only springs on mesh edges put the Mylar balloon's thickness 4.71% off. Triangles can change shape and gain area without any edge lengthening.
+- **The adopted model is a tension-field membrane**, as in Skouras et al. 2014. It penalises stretch beyond the flat pattern in every direction within each triangle, and lets the fabric wrinkle freely under compression. It matched the Mylar balloon within 0.05–0.95% at three mesh resolutions.
+- **Cloth stiffness is raised in three stages (1e2, 1e3, 1e4).** That keeps fabric stretch under 0.1% on an 8-gore ball, and takes about 8 s per part. Two stages took 3.1 s but let the fabric stretch 0.85%.
+- **Stuffing deviation on a 6 in ball** was 0.71% average and 2.49% worst with 6 gores, 0.42% / 1.44% with 8, and 0.23% / 0.58% with 12. All are within the check-3 limits; only check 4 needs 12 gores. The full comparison is recorded by Task 4.3.
+- **The correction loop** re-flattens each edge scaled by how far the stuffed surface bulged near it. On a 6-gore ball pushed toward a far tighter target, the average deviation fell from 0.578% to 0.538% and the worst from 2.07% to 1.77%, then levelled off. It reports `converged=False` with measured values; it never fails silently.
+- **Flat parts (ears, wings) are not simulated.** Their outline is cut exactly, and puffiness only shapes the 3D view. Check 3 will report them as "outline exact; stuffing not simulated".
+- Phase 4 has 7 tests instead of 6. Expected totals for later phases shift by +1.
 
-Simulate sewn panels as a low-stretch membrane under internal pressure, by minimising energy with `scipy.optimize`. 3 tests:
-- **Mylar balloon reference.** Two discs of radius a = 3 in, sewn at the rim, must inflate to:
-  - a rim radius r = a / 1.3110287771, within 3%;
-  - a thickness τ = 2 × 0.5990701173 × r, within 3%.
+### Task 4.1: Stuffing simulation
 
-  The constants come from Wikipedia, "Mylar balloon (geometry)", citing Paulsen (1994), *American Mathematical Monthly* 101(10):953–958. Check them against that page before writing the test.
-- No edge is longer than its rest length by more than 0.5%.
-- A mirror-symmetric input gives a result that is symmetric within 1e-3 in.
+**Files:** create `engine/plush/inflate.py`; test `engine/tests/test_inflate.py`.
 
-**Task 4.2: Correction loop.** Repeat simulate → compare with target → adjust panel outlines. 3 tests:
-- For a sphere with 6 gores, the final mean and maximum deviations are within the `stuffed_*` tolerances.
-- The final deviation is lower than the starting deviation.
-- If the loop hasn't converged when it reaches the iteration cap, the result is returned with `converged=False` and the measured values. It is never raised silently.
+**Step 1: Write the failing test file `engine/tests/test_inflate.py`**
 
-**Task 4.3: Gore-count comparison for the owner.** For the test bear's head and a 6 in ball, run the stuffing correction with 6, 8 and 12 gores. Record check 3's mean and worst deviation for each in PROGRESS.md, then ask the owner whether to keep the 3% flattening-stretch limit. This is a measurement, not a test.
+```python
+"""Stuffing simulation, checked against the Mylar balloon (Paulsen 1994).
 
-**Acceptance:** 57 passed.
+Reference constants from Wikipedia, "Mylar balloon (geometry)": a disc of
+radius a inflates to rim radius r = a / 1.3110287771 and thickness
+2 * 0.5990701173 * r.
+"""
+
+import numpy as np
+import pytest
+from scipy.spatial import Delaunay
+
+from plush.inflate import inflate, membrane_from_panels
+from plush.panels import Edge, Panel, gore_panels, strip_panels
+from plush.parts import Limb, RoundedSolid
+
+A = 3.0  # disc radius, inches
+
+
+def disc_panel(name: str, flip: bool, rings: int = 10) -> Panel:
+    pts = [[0.0, 0.0]]
+    for k in range(1, rings + 1):
+        n = 6 * k
+        a = np.linspace(0, 2 * np.pi, n, endpoint=False) + (0.5 * np.pi / n if k % 2 else 0)
+        pts += list(np.column_stack([A * k / rings * np.cos(a), A * k / rings * np.sin(a)]))
+    pts = np.array(pts)
+    F = Delaunay(pts).simplices
+    e1, e2 = pts[F[:, 1]] - pts[F[:, 0]], pts[F[:, 2]] - pts[F[:, 0]]
+    cw = (e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]) < 0
+    F[cw] = F[cw][:, ::-1]
+    rim = np.arange(len(pts) - 6 * rings, len(pts))
+    dome = (-1 if flip else 1) * 0.05 * (A**2 - (pts**2).sum(axis=1)) / A  # start slightly inflated
+    return Panel(name, "balloon", "#FFFFFF", np.column_stack([pts, dome]), F[:, ::-1] if flip else F,
+                 pts * ([-1, 1] if flip else [1, 1]), np.zeros(0), [Edge("seam", "rim", np.r_[rim, rim[0]])])
+
+
+@pytest.fixture(scope="module")
+def balloon():
+    return inflate(membrane_from_panels([disc_panel("top", False), disc_panel("bottom", True)]))
+
+
+@pytest.fixture(scope="module")
+def ball():
+    part = RoundedSolid(kind="rounded_solid", id="ball", name="Ball", colour="#000000",
+                        width=0.5, height=0.5, depth=0.5)
+    panels = gore_panels(part, 12.0, 8)
+    m = membrane_from_panels(panels)
+    return panels, m, inflate(m)
+
+
+def test_mylar_balloon_matches_published_shape(balloon):
+    r = A / 1.3110287771
+    rim = np.linalg.norm(balloon.positions[:, :2], axis=1).max()
+    thickness = np.ptp(balloon.positions[:, 2])
+    assert rim == pytest.approx(r, rel=0.03)
+    assert thickness == pytest.approx(2 * 0.5990701173 * r, rel=0.03)
+
+
+def test_fabric_barely_stretches(balloon):
+    assert balloon.max_stretch < 0.005
+
+
+def test_identical_gores_inflate_identically(ball):
+    panels, m, result = ball
+    starts = np.cumsum([0] + [len(p.vertices) for p in panels])
+    reach = []
+    for i, p in enumerate(panels):
+        X = result.positions[m.index[starts[i]:starts[i] + len(p.vertices)]]
+        reach.append(np.linalg.norm(X[:, [0, 2]], axis=1).max())  # furthest from the vertical axis
+    assert max(reach) - min(reach) < 1e-3
+
+
+def test_attachment_ring_stays_put():
+    leg = Limb(kind="limb", id="leg", name="Leg", colour="#000000", length=0.3, start_thickness=0.1,
+               end_thickness=0.1, end_shape="flat_sole",
+               attach={"parent": "body", "azimuth_deg": 90, "elevation_deg": 0})
+    m = membrane_from_panels(strip_panels(leg, 10.0, 1))
+    result = inflate(m)
+    assert m.fixed.sum() > 0
+    assert np.array_equal(result.positions[m.fixed], m.positions[m.fixed])
+    assert np.abs(result.positions[~m.fixed] - m.positions[~m.fixed]).max() > 1e-3
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.inflate'`.
+
+**Step 3: Create `engine/plush/inflate.py`**
+
+```python
+"""Stuffing simulation: sewn panels inflated by internal pressure.
+
+Fabric is modelled as a tension-field membrane (as in Skouras et al.,
+"Designing Inflatable Structures", 2014): each triangle resists stretching
+beyond its flat pattern shape in any direction, but wrinkles freely when
+compressed. Inflation minimises stretch energy minus pressure x volume.
+Validated against the Mylar balloon (two discs sewn at the rim).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+import trimesh
+from scipy.optimize import minimize
+
+from plush.panels import Panel, PanelSet
+
+STIFFNESS = (1e2, 1e3, 1e4)  # fabric stiffness per unit pressure, relative to part size; raised in stages
+
+
+@dataclass
+class Membrane:
+    positions: np.ndarray  # (n, 3) start positions: the target surface
+    faces: np.ndarray  # (t, 3) welded across seams
+    rest_inverse: np.ndarray  # (t, 2, 2) inverse of each triangle's flat edge matrix
+    rest_area: np.ndarray  # (t,)
+    fixed: np.ndarray  # (n,) bool: vertices held in place (where the part is sewn on)
+    index: np.ndarray  # membrane vertex for each panel vertex, panels taken in order
+
+
+@dataclass
+class Inflated:
+    positions: np.ndarray
+    iterations: int
+    max_stretch: float  # largest principal stretch beyond the flat pattern, as a fraction
+
+
+def membrane_from_panels(panels: list[Panel]) -> Membrane:
+    """Weld a part's panels along their seams. Attachment edges are held fixed."""
+    ps = PanelSet()
+    ps.add(panels)
+    offset, start = 0, {}
+    for p in panels:
+        start[p.name] = offset
+        offset += len(p.vertices)
+    V = np.vstack([p.vertices for p in panels])
+    F = np.vstack([p.faces + start[p.name] for p in panels])
+    U = np.vstack([p.uv for p in panels])
+
+    parent = np.arange(len(V))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for seam in ps.seams.values():
+        (pa, ea), (pb, eb) = seam.sides
+        chain_a = ps.panels[pa].edges[ea].vertices + start[pa]
+        chain_b = ps.panels[pb].edges[eb].vertices + start[pb]
+        for i, j in zip(chain_a, chain_b):
+            ri, rj = root(i), root(j)
+            if ri != rj:
+                parent[max(ri, rj)] = min(ri, rj)
+    roots = np.array([root(i) for i in range(len(V))])
+    kept, welded = np.unique(roots, return_inverse=True)
+
+    fixed = np.zeros(len(kept), bool)
+    for p in panels:
+        for e in p.edges:
+            if e.kind == "attachment":
+                fixed[welded[e.vertices + start[p.name]]] = True
+
+    u0, u1, u2 = U[F[:, 0]], U[F[:, 1]], U[F[:, 2]]
+    rest = np.stack([u1 - u0, u2 - u0], axis=2)
+    return Membrane(V[kept], welded[F], np.linalg.inv(rest), np.abs(np.linalg.det(rest)) / 2, fixed, welded)
+
+
+def _stretch_energy(X, m: Membrane, k: float):
+    """Energy and per-triangle gradient (t, 3, 2) of stretch beyond the flat shape."""
+    F = m.faces
+    x0, x1, x2 = X[F[:, 0]], X[F[:, 1]], X[F[:, 2]]
+    Fd = np.stack([x1 - x0, x2 - x0], axis=2) @ m.rest_inverse  # deformation gradient (t, 3, 2)
+    C = np.transpose(Fd, (0, 2, 1)) @ Fd
+    a, b, d = C[:, 0, 0], C[:, 0, 1], C[:, 1, 1]
+    centre, radius = (a + d) / 2, np.sqrt(((a - d) / 2) ** 2 + b**2)
+    stretch = np.sqrt(np.stack([centre + radius, np.maximum(centre - radius, 0.0)], axis=1))
+    over = np.maximum(stretch - 1.0, 0.0)
+    energy = float(np.sum(m.rest_area * k * (over**2).sum(axis=1)))
+
+    v1 = np.stack([b, stretch[:, 0] ** 2 - a], axis=1)
+    other = np.stack([stretch[:, 0] ** 2 - d, b], axis=1)
+    small = np.linalg.norm(v1, axis=1) < 1e-14
+    v1[small] = other[small]
+    norm = np.linalg.norm(v1, axis=1)
+    v1[norm < 1e-14] = [1.0, 0.0]
+    v1 /= np.linalg.norm(v1, axis=1)[:, None]
+    v2 = np.stack([-v1[:, 1], v1[:, 0]], axis=1)
+    grad = np.zeros_like(Fd)
+    for i, v in ((0, v1), (1, v2)):
+        coef = np.where(stretch[:, i] > 1e-14, 2 * m.rest_area * k * over[:, i] / np.maximum(stretch[:, i], 1e-14), 0.0)
+        Fv = np.einsum("tij,tj->ti", Fd, v)
+        grad += coef[:, None, None] * np.einsum("ti,tj->tij", Fv, v)
+    return energy, grad @ np.transpose(m.rest_inverse, (0, 2, 1)), float(over.max())
+
+
+def _scatter(F: np.ndarray, per_corner: list[np.ndarray], n: int) -> np.ndarray:
+    g = np.zeros((n, 3))
+    for corner, values in enumerate(per_corner):
+        for axis in range(3):
+            g[:, axis] += np.bincount(F[:, corner], weights=values[:, axis], minlength=n)
+    return g
+
+
+def inflate(m: Membrane, stiffness: tuple[float, ...] = STIFFNESS) -> Inflated:
+    X = m.positions.copy()
+    free = ~m.fixed
+    size = float(np.ptp(X, axis=0).max())
+    iterations, n, F = 0, len(X), m.faces
+    for K in stiffness:
+        k = K / size
+
+        def objective(z):
+            Xc = X.copy()
+            Xc[free] = z.reshape(-1, 3)
+            energy, dDs, _ = _stretch_energy(Xc, m, k)
+            a, b, c = Xc[F[:, 0]], Xc[F[:, 1]], Xc[F[:, 2]]
+            volume = np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6
+            g = _scatter(F, [-dDs[:, :, 0] - dDs[:, :, 1] - np.cross(b, c) / 6,
+                             dDs[:, :, 0] - np.cross(c, a) / 6,
+                             dDs[:, :, 1] - np.cross(a, b) / 6], n)
+            return energy - volume, g[free].ravel()
+
+        result = minimize(objective, X[free].ravel(), jac=True, method="L-BFGS-B",
+                          options={"maxiter": 30000, "maxcor": 30, "gtol": 1e-10, "ftol": 1e-15})
+        X[free] = result.x.reshape(-1, 3)
+        iterations += int(result.nit)
+    _, _, worst = _stretch_energy(X, m, 1.0)
+    return Inflated(X, iterations, worst)
+
+
+def deviation(inflated: np.ndarray, target: trimesh.Trimesh) -> np.ndarray:
+    """Signed distance of each inflated vertex from the target surface (+ = outside)."""
+    closest, distance, tri = trimesh.proximity.closest_point(target, inflated)
+    side = np.sign(np.einsum("ij,ij->i", inflated - closest, target.face_normals[tri]))
+    return side * distance
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `55 passed`. The run takes about 30 s, because each simulation takes several seconds.
+
+**Step 5:** Commit: `git add engine/plush/inflate.py engine/tests/test_inflate.py && git commit -m "feat(engine): tension-field stuffing simulation (checked against the Mylar balloon)"`
+
+### Task 4.2: Stuffing correction
+
+**Files:**
+- Modify (replace whole file): `engine/plush/flatten.py`. It gains an optional `lengths` target for `flatten_together`.
+- Create: `engine/plush/stuffing.py`
+- Test: `engine/tests/test_stuffing.py`
+
+**Step 1: Write the failing test file `engine/tests/test_stuffing.py`**
+
+```python
+import pytest
+
+from plush.panels import gore_panels
+from plush.parts import RoundedSolid
+from plush.settings import load_settings
+from plush.stuffing import stuff
+
+SETTINGS = load_settings()
+
+
+def ball():
+    return RoundedSolid(kind="rounded_solid", id="ball", name="Ball", colour="#000000",
+                        width=0.5, height=0.5, depth=0.5)
+
+
+@pytest.fixture(scope="module")
+def tight():
+    # a target far tighter than the settings, so the correction loop has to work (and cannot finish)
+    return stuff(gore_panels(ball(), 12.0, 6), mean_limit=0.001, worst_limit=0.005, rounds=1)
+
+
+def test_eight_gore_ball_stuffs_close_to_its_model():
+    result = stuff(gore_panels(ball(), 12.0, 8), SETTINGS.stuffed_mean_deviation, SETTINGS.stuffed_max_deviation)
+    assert result.converged
+    assert result.mean_deviation <= SETTINGS.stuffed_mean_deviation
+    assert result.worst_deviation <= SETTINGS.stuffed_max_deviation
+    assert len(result.history) == 1  # no correction needed
+
+
+def test_correction_reduces_deviation(tight):
+    start_mean, _ = tight.history[0]
+    assert len(tight.history) == 2
+    assert tight.mean_deviation < start_mean
+
+
+def test_unreachable_target_reports_measured_values(tight):
+    assert tight.converged is False
+    assert tight.mean_deviation > 0.001
+    assert (tight.mean_deviation, tight.worst_deviation) in tight.history
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.stuffing'`.
+
+**Step 3: Replace `engine/plush/flatten.py`**
+
+```python
+"""Flatten 3D panels onto the plane with as little stretch as possible.
+
+All panels of one part are flattened together. Each starts from a
+least-squares conformal map (libigl); then a sparse Levenberg-Marquardt
+solve moves every flat edge toward its 3D length, while holding each pair
+of matching seam edges to the same flat length. Seam sides may ease a
+little along with the fabric, but they always match each other, which is
+what sewing needs. Stretch is reported per mesh edge.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import igl
+import numpy as np
+from scipy.sparse import csr_matrix, identity
+from scipy.sparse.linalg import spsolve
+
+SEAM_WEIGHT = 100.0
+MAX_ITERATIONS = 200
+
+
+@dataclass
+class Flattened:
+    uv: np.ndarray  # (n, 2) inches
+    edges: np.ndarray  # (m, 2) vertex indices
+    stretch: np.ndarray  # (m,) |flat length / 3D length - 1|
+
+
+@dataclass
+class SeamLink:
+    """Two chains of vertices (panel index, vertex indices) that are sewn together, in matching order."""
+
+    a_panel: int
+    a_chain: np.ndarray
+    b_panel: int
+    b_chain: np.ndarray
+
+
+def flatten(vertices: np.ndarray, faces: np.ndarray) -> Flattened:
+    """Flatten a single panel."""
+    return flatten_together([(vertices, faces)], [])[0]
+
+
+def flatten_together(
+    meshes: list[tuple[np.ndarray, np.ndarray]],
+    links: list[SeamLink],
+    lengths: list[np.ndarray] | None = None,
+) -> list[Flattened]:
+    """Flatten several panels at once. `lengths` (optional, per panel, in igl.edges order) replaces
+    the 3D edge lengths as the target, which the stuffing correction uses."""
+    starts, x0, edge_sets, targets = [], [], [], []
+    offset = 0
+    for i, (V, F) in enumerate(meshes):
+        V, F = np.asarray(V, float), np.asarray(F, np.int64)
+        E = igl.edges(F)
+        L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1) if lengths is None else np.asarray(lengths[i], float)
+        x0.append(_initial_uv(V, F, E, L))
+        starts.append(offset)
+        edge_sets.append(E + offset)
+        targets.append(L)
+        offset += len(V)
+
+    E_all = np.vstack(edge_sets)
+    L_all = np.concatenate(targets)
+    pairs_a, pairs_b, pair_len = [], [], []
+    for link in links:
+        ga, gb = link.a_chain + starts[link.a_panel], link.b_chain + starts[link.b_panel]
+        pairs_a.append(np.column_stack([ga[:-1], ga[1:]]))
+        pairs_b.append(np.column_stack([gb[:-1], gb[1:]]))
+        V = np.asarray(meshes[link.a_panel][0], float)
+        pair_len.append(np.linalg.norm(V[link.a_chain[1:]] - V[link.a_chain[:-1]], axis=1))
+    A = np.vstack(pairs_a) if pairs_a else np.zeros((0, 2), np.int64)
+    B = np.vstack(pairs_b) if pairs_b else np.zeros((0, 2), np.int64)
+    P = np.concatenate(pair_len) if pair_len else np.zeros(0)
+
+    x = _solve(np.concatenate([u.ravel() for u in x0]), E_all, L_all, A, B, P)
+    uv_all = x.reshape(-1, 2)
+
+    out = []
+    for (V, F), start, E, L in zip(meshes, starts, edge_sets, targets):
+        uv = uv_all[start : start + len(V)].copy()
+        F = np.asarray(F, np.int64)
+        if _signed_area(uv, F) < 0:  # keep the outside of the fabric facing up
+            uv[:, 0] *= -1
+        local_E = E - start
+        flat = np.linalg.norm(uv[local_E[:, 0]] - uv[local_E[:, 1]], axis=1)
+        out.append(Flattened(uv=uv, edges=local_E, stretch=np.abs(flat / L - 1)))
+    return out
+
+
+def _initial_uv(V: np.ndarray, F: np.ndarray, E: np.ndarray, L: np.ndarray) -> np.ndarray:
+    if np.ptp(V, axis=0).min() < 1e-12:  # already flat: use the plane's own coordinates
+        keep = np.sort(np.argsort(np.ptp(V, axis=0))[1:])
+        return V[:, keep]
+    loop = igl.boundary_loop(F)
+    pins = np.array([loop[0], loop[len(loop) // 2]], dtype=np.int64)
+    uv, _ = igl.lscm(V, F, pins, np.array([[0.0, 0.0], [1.0, 0.0]]))
+    flat = np.linalg.norm(uv[E[:, 0]] - uv[E[:, 1]], axis=1)
+    return uv * (L @ flat) / (flat @ flat)
+
+
+def _signed_area(uv: np.ndarray, F: np.ndarray) -> float:
+    a, b, c = uv[F[:, 0]], uv[F[:, 1]], uv[F[:, 2]]
+    return float(np.sum((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])))
+
+
+def _solve(x, E, L, A, B, P) -> np.ndarray:
+    """Least squares: edges toward 3D length; matching seam edges toward equal flat length."""
+    m, k, n = len(E), len(A), len(x)
+
+    def cols(idx):
+        return np.column_stack([2 * idx[:, 0], 2 * idx[:, 0] + 1, 2 * idx[:, 1], 2 * idx[:, 1] + 1])
+
+    rows_e = np.repeat(np.arange(m), 4)
+    cols_e = cols(E).ravel()
+    rows_s = np.repeat(np.arange(m, m + k), 8)
+    cols_s = np.column_stack([cols(A), cols(B)]).ravel()
+
+    def evaluate(x):
+        X = x.reshape(-1, 2)
+        de, da, db = X[E[:, 0]] - X[E[:, 1]], X[A[:, 0]] - X[A[:, 1]], X[B[:, 0]] - X[B[:, 1]]
+        le, la, lb = (np.linalg.norm(d, axis=1) for d in (de, da, db))
+        r = np.concatenate([(le - L) / L, SEAM_WEIGHT * (la - lb) / P])
+        return r, (de, da, db, le, la, lb)
+
+    def jacobian(parts):
+        de, da, db, le, la, lb = parts
+        ge = de / (L * le)[:, None]
+        ga = SEAM_WEIGHT * da / (P * la)[:, None]
+        gb = -SEAM_WEIGHT * db / (P * lb)[:, None]
+        data = np.concatenate([np.column_stack([ge, -ge]).ravel(), np.column_stack([ga, -ga, gb, -gb]).ravel()])
+        return csr_matrix((data, (np.r_[rows_e, rows_s], np.r_[cols_e, cols_s])), shape=(m + k, n))
+
+    r, parts = evaluate(x)
+    cost, damping = r @ r, 1e-3
+    for _ in range(MAX_ITERATIONS):
+        J = jacobian(parts)
+        H, g = (J.T @ J).tocsc(), -(J.T @ r)
+        while damping <= 1e8:
+            step = spsolve(H + damping * identity(n, format="csc"), g)
+            r_new, parts_new = evaluate(x + step)
+            new_cost = r_new @ r_new
+            if new_cost < cost:
+                break
+            damping *= 4
+        if damping > 1e8:
+            break
+        improvement = cost - new_cost
+        x, r, parts, cost = x + step, r_new, parts_new, new_cost
+        damping = max(damping / 3, 1e-12)
+        if improvement < 1e-14 * max(cost, 1e-30):
+            break
+    return x
+```
+
+**and create `engine/plush/stuffing.py`**
+
+```python
+"""Stuffing correction: adjust the flat panels until the stuffed part matches its 3D model."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import igl
+import numpy as np
+import trimesh
+
+from plush.flatten import SeamLink, flatten_together
+from plush.inflate import Inflated, deviation, inflate, membrane_from_panels
+from plush.panels import Panel
+
+MAX_ROUNDS = 4
+STEP = 1.0  # fraction of the measured bulge removed per round
+
+
+@dataclass
+class StuffingResult:
+    panels: list[Panel]
+    inflated: Inflated
+    mean_deviation: float  # fraction of the part's largest dimension
+    worst_deviation: float
+    converged: bool
+    history: list[tuple[float, float]] = field(default_factory=list)  # (mean, worst) per round
+
+
+def _target(panels: list[Panel]) -> trimesh.Trimesh:
+    m = membrane_from_panels(panels)
+    return trimesh.Trimesh(m.positions, m.faces, process=False)
+
+
+def _measure(panels: list[Panel], target: trimesh.Trimesh, size: float):
+    inflated = inflate(membrane_from_panels(panels))
+    signed = deviation(inflated.positions, target)
+    return inflated, signed, float(np.abs(signed).mean() / size), float(np.abs(signed).max() / size)
+
+
+def stuff(panels: list[Panel], mean_limit: float, worst_limit: float, rounds: int = MAX_ROUNDS) -> StuffingResult:
+    """Simulate stuffing; while the result is off the model, shrink fabric where it bulges and grow it where it sinks."""
+    target = _target(panels)
+    size = float(np.ptp(target.vertices, axis=0).max())
+    centre = target.vertices.mean(axis=0)
+    inflated, signed, mean, worst = _measure(panels, target, size)
+    history = [(mean, worst)]
+    best = (panels, inflated, mean, worst)
+
+    for _ in range(rounds):
+        if mean <= mean_limit and worst <= worst_limit:
+            break
+        panels = _adjusted(best[0], best[1], target, centre)
+        inflated, signed, mean, worst = _measure(panels, target, size)
+        history.append((mean, worst))
+        if mean < best[2]:
+            best = (panels, inflated, mean, worst)
+
+    panels, inflated, mean, worst = best
+    return StuffingResult(panels, inflated, mean, worst, mean <= mean_limit and worst <= worst_limit, history)
+
+
+def _adjusted(panels: list[Panel], inflated: Inflated, target: trimesh.Trimesh, centre: np.ndarray) -> list[Panel]:
+    """Re-flatten with each edge scaled by how far the stuffed surface bulged (or sank) near it."""
+    m = membrane_from_panels(panels)
+    signed = deviation(inflated.positions, target)
+    radius = np.linalg.norm(m.positions - centre, axis=1)
+    factor = 1.0 - STEP * signed / np.maximum(radius, 1e-9)  # per welded vertex
+
+    starts = np.cumsum([0] + [len(p.vertices) for p in panels])
+    welded = m.index
+    meshes, lengths, new_panels = [], [], []
+    for i, p in enumerate(panels):
+        E = igl.edges(p.faces)
+        flat = np.linalg.norm(p.uv[E[:, 0]] - p.uv[E[:, 1]], axis=1)
+        f = factor[welded[starts[i] + E[:, 0]]] * factor[welded[starts[i] + E[:, 1]]]
+        meshes.append((p.vertices, p.faces))
+        lengths.append(flat * np.sqrt(f))
+    chains: dict[str, list[tuple[int, np.ndarray]]] = {}
+    for i, p in enumerate(panels):
+        for e in p.edges:
+            if e.kind == "seam":
+                chains.setdefault(e.seam, []).append((i, e.vertices))
+    links = [SeamLink(a[0], a[1], b[0], b[1]) for a, b in (c for c in chains.values() if len(c) == 2)]
+    flats = flatten_together(meshes, links, lengths=lengths)
+    for p, flat in zip(panels, flats):
+        # stretch keeps meaning "how far the fabric stretches to match the model", from the first flattening
+        new_panels.append(Panel(p.name, p.part, p.colour, p.vertices, p.faces, flat.uv - flat.uv.mean(axis=0),
+                                p.stretch, p.edges, p.cut, p.mirrored, p.upright))
+    return new_panels
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `58 passed`, in about 55 s.
+
+**Step 5:** Commit: `git add engine/plush/flatten.py engine/plush/stuffing.py engine/tests/test_stuffing.py && git commit -m "feat(engine): stuffing correction loop"`
+
+### Task 4.3: Gore-count comparison for the owner
+
+**Files:** create `engine/tools/gore_comparison.py`. This is a measurement script, not a test.
+
+```python
+"""Measure check 4 (flattening stretch) and check 3 (stuffed shape) for 6, 8 and 12 gores.
+
+Run from engine/:  uv run python tools/gore_comparison.py
+Shapes: a 6 in ball, and the head of the test-only bear kit (tests/kits.py) at 12 in tall.
+"""
+
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
+
+from kits import bear  # noqa: E402
+
+from plush.geometry.assemble import assemble  # noqa: E402
+from plush.panels import gore_panels  # noqa: E402
+from plush.parts import RoundedSolid, parse_kit  # noqa: E402
+from plush.settings import load_settings  # noqa: E402
+from plush.stuffing import stuff  # noqa: E402
+
+
+def main() -> None:
+    s = load_settings()
+    ball = RoundedSolid(kind="rounded_solid", id="ball", name="Ball", colour="#000000",
+                        width=0.5, height=0.5, depth=0.5)
+    kit = parse_kit(json.dumps(bear()))
+    placed = assemble(kit, 12.0)
+    head = next(p for p in kit.parts if p.id == "head")
+    print(f"Limits: flattening stretch {s.max_flatten_stretch:.0%}; stuffed deviation mean "
+          f"{s.stuffed_mean_deviation:.0%}, worst {s.stuffed_max_deviation:.0%} (of the part's largest size)")
+    print("shape | gores | flattening stretch (check 4) | stuffed mean / worst (check 3) | passes 3 / 4")
+    shapes = (("ball, 6.00 in across", ball, 12.0),
+              (f"bear head, {placed['head'].mesh.extents.max():.2f} in across", head, placed["head"].scale_in))
+    for label, part, scale in shapes:
+        for n in (6, 8, 12):
+            panels = gore_panels(part, scale, n)
+            flat = max(p.max_stretch for p in panels)
+            r = stuff(panels, s.stuffed_mean_deviation, s.stuffed_max_deviation)
+            p3 = r.mean_deviation <= s.stuffed_mean_deviation and r.worst_deviation <= s.stuffed_max_deviation
+            print(f"{label} | {n} | {flat:.2%} | {r.mean_deviation:.2%} / {r.worst_deviation:.2%} | "
+                  f"{'yes' if p3 else 'no'} / {'yes' if flat <= s.max_flatten_stretch else 'no'}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+1. Run `cd engine && uv run python tools/gore_comparison.py`.
+2. Copy the table into `docs/PROGRESS.md`, then commit it.
+3. Ask the owner whether to keep the 3% flattening-stretch limit.
+
+### Task 4.4: Record Phase 4
+
+Add "Phase 4 done: 58 passed, 0 failed, 0 skipped" with the date to `docs/PROGRESS.md`, then commit it.
 
 ## Phase 5: Finishing and checks 1, 3, 4 and 5
 
@@ -2872,7 +3485,7 @@ Simulate sewn panels as a low-stretch membrane under internal pressure, by minim
 
 Check 3 is covered by Task 4.2.
 
-**Acceptance:** 68 passed.
+**Acceptance:** 69 passed.
 
 ## Phase 6: Outputs, and checks 2 and 6
 
@@ -2901,7 +3514,7 @@ Check 3 is covered by Task 4.2.
 
 **Task 6.5: Unapproved settings** — 1 test: while `approved_by_owner = false`, page 1 says "Tolerance settings not yet approved by owner".
 
-**Acceptance:** 83 passed.
+**Acceptance:** 84 passed.
 
 ## Phase 7: Projects, versions, check 7 and the local service
 
@@ -2922,7 +3535,7 @@ Check 3 is covered by Task 4.2.
 
 **Task 7.3: Measure.** Time POST `/mesh` for the bear on this Mac and record the measured number in PROGRESS.md. The owner judges whether editing feels responsive. Only if it doesn't, propose a TypeScript port of the geometry with a parity test, and ask before building it.
 
-**Acceptance:** 92 passed.
+**Acceptance:** 93 passed.
 
 ## Phase 8: Reading the picture (hosted vision model)
 
@@ -2941,7 +3554,7 @@ Then expand this phase.
 - Run: `cd engine && uv run pytest -m live -q`, only with approval.
 - Live tests are not counted in the default totals.
 
-**Acceptance:** 94 passed in the default run, with the live results recorded separately.
+**Acceptance:** 95 passed in the default run, with the live results recorded separately.
 
 ## Phase 9: Angular front end
 
