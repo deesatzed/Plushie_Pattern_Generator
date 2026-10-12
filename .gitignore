@@ -45,3 +45,11 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Python engine
+engine/.venv/
+__pycache__/
+.pytest_cache/
+
+# Project folders (pictures, kits, patterns) stay on this Mac
+/projects/
