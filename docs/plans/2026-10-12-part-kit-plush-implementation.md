@@ -65,7 +65,7 @@ All Python packages were installed and imported on this Mac (M4 Pro, Python 3.13
 
 | End of phase | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|---|
-| Tests | 2 | 16 | 35 | 48 | 54 | 65 | 80 | 89 | 91 |
+| Tests | 2 | 16 | 35 | 51 | 57 | 68 | 83 | 92 | 94 |
 
 If a phase's expansion changes its test count, update this table in the same commit.
 
@@ -1564,32 +1564,1269 @@ Add "Phase 2 done: 35 passed, 0 failed, 0 skipped" with the date to `docs/PROGRE
 
 ## Phase 3: Panels, flattening and seams
 
-**Gate G2 applies before starting.** Then **Task 3.0: Expand.**
+**Gate G2 was approved on 2026-10-12.**
 
-**Task 3.1: `engine/plush/flatten.py`**
+**Task 3.0: Expand. Done 2026-10-12.** Developed and run in a scratch copy first: 51 passed.
 
-Function: `flatten(mesh) -> FlatPanel` using `igl.lscm(V, F, b, bc)`, followed by a least-squares scale fit to the 3D edge lengths and an optional `igl.ARAP` refinement. The result reports the maximum and mean edge stretch. 3 tests:
-- A cylinder of radius 1 and length 3, cut along one line, flattens to a rectangle. The width equals the mesh's cross-section perimeter within 0.1%, the height is 3 within 0.1%, and the maximum stretch is below 1e-3.
-- A flat input stays the same, with stretch below 1e-9.
-- The stretch statistics are present and are 0 or more.
+Measured while expanding, on a sphere 6 in across:
+- **Flattening each panel on its own, with seam edges held exactly to their 3D length,** gave a worst stretch of 9.8% (6 gores), 5.9% (8), 3.85% (10) and 2.87% (12). The worst stretch sat at the gore's widest point, not at its tips.
+- **Flattening all of a part's panels together,** with matching seam edges held equal to each other rather than to their 3D length, gave 6.63% (6 gores), 3.71% (8), 2.35% (10) and 1.55% (12). The two sides of every seam match within 0.000006 in. This method was adopted.
+- **A side panel for the side-plus-gusset construction** needs 5.2% stretch at 30° and 19.7% at 60°. The owner removed that construction from version 1. The design doc records this.
+- **The first refinement solver took 1.5 to 60 s per panel.** A sparse Levenberg-Marquardt solver takes 0.01 s per gore. Very low panel counts are slow and hopeless, so the panel-count search tries 8 first and predicts the answer from it: stretch falls roughly with the square of the count. The test bear's panels build in 0.83 s.
+- **The owner kept the 3% limit,** and will compare check-3 results for 6, 8 and 12 gores after Phase 4.
 
-**Task 3.2: `engine/plush/panels.py` (constructions)** — 4 tests:
-- A sphere built with n gores gives n panels whose flattened areas are equal within 0.5%.
-- An elongated rounded solid gets side panels plus a gusset (3 panels).
-- A `flat_sole` limb gives a wrapped panel plus a sole; `round` and `point` limbs get no sole.
-- A flat part gives two mirror-image pieces, plus an inner piece when `inner_colour` is set.
+Other changes from the outline:
+- The geometry modules gain the helpers the panel builders need: `deform`, `unit_direction`, `bottom_theta`, `limb_rings`, `ring_points`, `ring_frame` and `outline_triangulation`.
+- `Placed` gains `scale_in`.
+- A new module, `plush/geometry/grid.py`, holds the grid triangulation.
+- Every 3D panel faces outward. This is tested, because the stuffing simulation needs it.
+- Phase 3 has 16 new tests instead of 13. Expected totals for later phases shift by +3.
 
-**Task 3.3: `engine/plush/seams.py`** — 4 tests:
-- Every seam has exactly two sides.
-- After equalising, the two sides of each seam differ by no more than `seam_length_diff_in`.
-- Both sides of a seam have the same number of notches, with no gap larger than `notch_spacing_in`.
-- Each closed part has exactly one stuffing gap.
+### Task 3.1: Geometry helpers for panels; `Placed.scale_in`
 
-**Task 3.4: Adaptive panel count** — 2 tests:
-- For a sphere, the engine picks the smallest n whose stretch is within `max_flatten_stretch`, and n − 1 exceeds the limit.
-- If the cap of 12 gores still can't meet the limit, the engine raises an error naming the part.
+**Files:**
+- Modify (replace whole files): `engine/plush/geometry/rounded_solid.py`, `engine/plush/geometry/limb.py`, `engine/plush/geometry/flat_part.py` and `engine/plush/geometry/assemble.py`
+- Test: `engine/tests/test_assemble.py` (replace whole file)
 
-**Acceptance:** 48 passed.
+**Step 1: Replace `engine/tests/test_assemble.py` with this version, which adds the scale test**
+
+```python
+import json
+
+import numpy as np
+import pytest
+import trimesh
+
+from plush.geometry.assemble import assemble
+from plush.geometry.rounded_solid import rounded_solid_mesh
+from plush.parts import RoundedSolid, parse_kit
+
+from kits import BODY, bear
+
+
+@pytest.fixture(scope="module")
+def placed():
+    return assemble(parse_kit(json.dumps(bear())), finished_height_in=12.0)
+
+
+def test_part_meshes_face_outward(placed):
+    for name, p in placed.items():
+        if p.kind == "surface_feature":
+            continue
+        m = p.mesh
+        outward = np.einsum("ij,ij->i", m.face_normals, m.triangles_center - m.vertices.mean(axis=0))
+        assert outward.mean() > 0, name
+
+
+def test_pair_copies_mirror_each_other(placed):
+    for pid in ("ear", "arm", "eye"):
+        left, right = placed[f"{pid}_left"].mesh.vertices, placed[f"{pid}_right"].mesh.vertices
+        assert np.abs(left * [-1, 1, 1] - right).max() < 1e-9
+        assert left[:, 0].mean() > 0  # the left copy is on the character's left (+x)
+
+
+def test_children_attach_on_parent_surface(placed):
+    for name, p in placed.items():
+        if p.parent is None:
+            continue
+        _, distance, _ = trimesh.proximity.closest_point(placed[p.parent].mesh, p.anchor[None, :])
+        assert distance[0] < 0.01, name
+
+
+def test_assembly_height_equals_finished_height(placed):
+    lo = np.min([p.mesh.bounds[0] for p in placed.values()], axis=0)
+    hi = np.max([p.mesh.bounds[1] for p in placed.values()], axis=0)
+    assert hi[1] - lo[1] == pytest.approx(12.0, abs=1e-6)
+    assert lo[1] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_scale_rebuilds_parts_at_finished_size(placed):
+    rebuilt = rounded_solid_mesh(RoundedSolid(**BODY), placed["body"].scale_in)
+    assert rebuilt.extents == pytest.approx(placed["body"].mesh.extents, rel=1e-9)
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: `1 failed, 35 passed`, with an `AttributeError` mentioning `scale_in`.
+
+**Step 3: Replace `engine/plush/geometry/rounded_solid.py`**
+
+```python
+"""Rounded solids (body, head, muzzle): a deformed sphere at finished size."""
+
+from __future__ import annotations
+
+import numpy as np
+import trimesh
+
+from plush.parts import RoundedSolid
+
+SUBDIVISIONS = 4  # icosphere with 2562 vertices
+FLAT_BOTTOM_CUT = 0.85  # unit-sphere depth at which a flat bottom is cut
+_PROFILE_SAMPLES = 20001
+
+
+def unit_direction(theta: np.ndarray, phi: np.ndarray) -> np.ndarray:
+    """Point on the unit sphere. theta from the top (0) down; phi around, 0 = front, pi/2 = left."""
+    theta, phi = np.broadcast_arrays(theta, phi)
+    return np.stack([np.sin(theta) * np.sin(phi), np.cos(theta), np.sin(theta) * np.cos(phi)], axis=-1)
+
+
+def bottom_theta(part: RoundedSolid) -> float:
+    """Polar angle where the surface ends: the bottom pole, or the rim of a flat bottom."""
+    return float(np.arccos(-FLAT_BOTTOM_CUT)) if part.flat_bottom else float(np.pi)
+
+
+def _normaliser(part: RoundedSolid) -> tuple[float, float, float]:
+    """Vertical centre, widest radius and vertical half-height of the deformed unit sphere."""
+    y_min = -FLAT_BOTTOM_CUT if part.flat_bottom else -1.0
+    y = np.linspace(y_min, 1.0, _PROFILE_SAMPLES)
+    radius = np.sqrt(np.clip(1 - y**2, 0, None)) * (1 - part.taper * y)
+    return (1.0 + y_min) / 2, float(radius.max()), (1.0 - y_min) / 2
+
+
+def deform(unit: np.ndarray, part: RoundedSolid, scale_in: float) -> np.ndarray:
+    """Map unit-sphere points onto the part's surface (centred on its bounding box), in inches."""
+    v = np.array(unit, dtype=float)
+    if part.flat_bottom:
+        v[..., 1] = np.maximum(v[..., 1], -FLAT_BOTTOM_CUT)
+    # +taper widens the lower half and narrows the upper half
+    v[..., 0] *= 1.0 - part.taper * v[..., 1]
+    v[..., 2] *= 1.0 - part.taper * v[..., 1]
+    y_mid, r_max, y_half = _normaliser(part)
+    half = np.array([part.width, part.height, part.depth]) * scale_in / 2
+    out = np.empty_like(v)
+    out[..., 0] = v[..., 0] / r_max * half[0]
+    out[..., 1] = (v[..., 1] - y_mid) / y_half * half[1]
+    out[..., 2] = v[..., 2] / r_max * half[2]
+    return out
+
+
+def rounded_solid_mesh(part: RoundedSolid, scale_in: float) -> trimesh.Trimesh:
+    """Mesh centred on its bounding box, sized width x height x depth."""
+    unit = trimesh.creation.icosphere(subdivisions=SUBDIVISIONS, radius=1.0)
+    return trimesh.Trimesh(vertices=deform(unit.vertices, part, scale_in), faces=unit.faces, process=False)
+```
+
+**Replace `engine/plush/geometry/limb.py`**
+
+```python
+"""Limbs (arms, legs, tails, horns): a tapered tube along a bent centreline.
+
+Local frame: the limb starts at the origin, where it is sewn on and left
+open, grows along +y and bends toward +z.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import trimesh
+
+from plush.parts import EndShape, Limb
+
+RINGS = 40
+SEGMENTS = 48
+CAP_RINGS = 12
+POINT_LENGTH = 1.5  # length of a pointed end, in end radii
+
+
+def limb_centreline(part: Limb, scale_in: float, n: int = RINGS) -> tuple[np.ndarray, np.ndarray]:
+    """Points and unit tangents along the centreline, from start to end."""
+    length = part.length * scale_in
+    t = np.linspace(0.0, 1.0, n)
+    theta = np.radians(part.bend_deg)
+    zeros = np.zeros(n)
+    if theta < 1e-9:
+        points = np.column_stack([zeros, length * t, zeros])
+        tangents = np.tile([0.0, 1.0, 0.0], (n, 1))
+    else:
+        radius = length / theta
+        a = theta * t
+        points = np.column_stack([zeros, radius * np.sin(a), radius * (1 - np.cos(a))])
+        tangents = np.column_stack([zeros, np.cos(a), np.sin(a)])
+    return points, tangents
+
+
+def ring_frame(tangent: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Two unit axes across the tube at a ring; angle 0 points along local +x."""
+    x_axis = np.array([1.0, 0.0, 0.0])
+    return x_axis, np.cross(x_axis, tangent)
+
+
+def ring_points(centre: np.ndarray, tangent: np.ndarray, radius: float, phi: np.ndarray) -> np.ndarray:
+    x_axis, b_axis = ring_frame(tangent)
+    return centre + radius * (np.outer(np.cos(phi), x_axis) + np.outer(np.sin(phi), b_axis))
+
+
+def limb_rings(part: Limb, scale_in: float) -> tuple[list[tuple[np.ndarray, np.ndarray, float]], np.ndarray | None]:
+    """(centre, tangent, radius) of every ring from the open start to the end cap, and the tip.
+
+    The tip is None for a flat sole, whose last ring is closed by a flat disc.
+    """
+    points, tangents = limb_centreline(part, scale_in)
+    t = np.linspace(0.0, 1.0, len(points))
+    radii = ((1 - t) * part.start_thickness + t * part.end_thickness) / 2 * scale_in
+    rings = [(p, d, float(r)) for p, d, r in zip(points, tangents, radii)]
+    end, tan, r_end = points[-1], tangents[-1], float(radii[-1])
+    if part.end_shape is EndShape.ROUND:
+        alpha = np.linspace(0, np.pi / 2, CAP_RINGS + 1)[1:-1]
+        rings += [(end + tan * r_end * np.sin(a), tan, r_end * np.cos(a)) for a in alpha]
+        return rings, end + tan * r_end
+    if part.end_shape is EndShape.POINT:
+        k = np.arange(1, CAP_RINGS) / CAP_RINGS
+        rings += [(end + tan * POINT_LENGTH * r_end * f, tan, r_end * (1 - f)) for f in k]
+        return rings, end + tan * POINT_LENGTH * r_end
+    return rings, None
+
+
+def limb_mesh(part: Limb, scale_in: float) -> trimesh.Trimesh:
+    rings, tip = limb_rings(part, scale_in)
+    if tip is None:  # flat sole: a disc closing the end
+        tip = rings[-1][0]
+    phi = np.linspace(0.0, 2 * np.pi, SEGMENTS, endpoint=False)
+    vertices = np.vstack([ring_points(c, d, r, phi) for c, d, r in rings] + [tip[None, :]])
+    s = SEGMENTS
+    faces = []
+    for i in range(len(rings) - 1):
+        for j in range(s):
+            a, b = i * s + j, i * s + (j + 1) % s
+            c, d = a + s, b + s
+            faces += [[a, c, b], [b, c, d]]
+    tip_index = len(vertices) - 1
+    last = (len(rings) - 1) * s
+    faces += [[last + j, tip_index, last + (j + 1) % s] for j in range(s)]
+    return trimesh.Trimesh(vertices=vertices, faces=np.array(faces), process=False)
+```
+
+**Replace `engine/plush/geometry/flat_part.py`**
+
+```python
+"""Flat parts (ears, wings, fins): an outline sewn as a lightly stuffed pillow.
+
+Local frame: the straight base edge lies on y = 0 (where the part is sewn
+on), the tip points along +y and the front face looks along +z.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import shapely
+import trimesh
+from scipy.spatial import Delaunay
+from shapely.geometry import Polygon
+
+from plush.parts import FlatPart, Outline
+
+PROFILE_SAMPLES = 96
+GRID = 24
+
+
+def _half_width(outline: Outline, t: np.ndarray) -> np.ndarray:
+    """Half-width at height fraction t (0 = base, 1 = tip), as a fraction of half the width."""
+    if outline is Outline.ROUND:
+        return np.sqrt(np.clip(1 - t**2, 0, None))
+    if outline is Outline.POINTED:
+        return 1 - t
+    if outline is Outline.LONG_OVAL:
+        return np.clip(1 - t**4, 0, None) ** 0.25
+    return np.clip(np.sin(np.pi * (0.25 + 0.75 * t)), 0, None)  # leaf
+
+
+def outline_polygon(part: FlatPart, scale_in: float) -> Polygon:
+    w, h = part.width * scale_in, part.height * scale_in
+    t = np.sin(np.linspace(0, np.pi / 2, PROFILE_SAMPLES))  # dense near the tip
+    hw = _half_width(part.outline, t) * w / 2
+    right = np.column_stack([hw, t * h])
+    left = np.column_stack([-hw[-2::-1], t[-2::-1] * h])
+    return Polygon(np.vstack([right, left]))
+
+
+def outline_triangulation(part: FlatPart, scale_in: float) -> tuple[np.ndarray, np.ndarray, int]:
+    """Points and counter-clockwise triangles filling the outline.
+
+    The first `n_boundary` points are the outline itself: from the right end of
+    the base, up around the tip, down to the left end of the base.
+    """
+    poly = outline_polygon(part, scale_in)
+    w, h = part.width * scale_in, part.height * scale_in
+    boundary = np.asarray(poly.exterior.coords)[:-1]
+    gx, gy = np.meshgrid(np.linspace(-w / 2, w / 2, GRID), np.linspace(0, h, GRID))
+    grid = np.column_stack([gx.ravel(), gy.ravel()])
+    inner = poly.buffer(-0.02 * min(w, h))
+    grid = grid[shapely.contains_xy(inner, grid[:, 0], grid[:, 1])]
+    pts = np.vstack([boundary, grid])
+
+    tri = Delaunay(pts).simplices
+    centroids = pts[tri].mean(axis=1)
+    tri = tri[shapely.contains_xy(poly, centroids[:, 0], centroids[:, 1])]
+    e1, e2 = pts[tri[:, 1]] - pts[tri[:, 0]], pts[tri[:, 2]] - pts[tri[:, 0]]
+    flip = (e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]) < 0
+    tri[flip] = tri[flip][:, ::-1]
+    return pts, tri, len(boundary)
+
+
+def flat_part_mesh(part: FlatPart, scale_in: float) -> trimesh.Trimesh:
+    pts, tri, nb = outline_triangulation(part, scale_in)
+    poly = outline_polygon(part, scale_in)
+    w, h = part.width * scale_in, part.height * scale_in
+    dist = shapely.distance(poly.exterior, shapely.points(pts))
+    thickness = part.puffiness * 0.5 * min(w, h)
+    puff = thickness / 2 * np.sin(np.pi / 2 * dist / dist.max())
+    cup = part.cupping * (w / 4) * (pts[:, 0] / (w / 2)) ** 2
+
+    n = len(pts)
+    top = np.column_stack([pts, cup + puff])
+    back = np.column_stack([pts[nb:], cup[nb:] - puff[nb:]])
+    vertices = np.vstack([top, back])
+    back_index = np.concatenate([np.arange(nb), n + np.arange(n - nb)])  # rim shared
+    faces = np.vstack([tri, back_index[tri][:, ::-1]])
+    return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+```
+
+**Replace `engine/plush/geometry/assemble.py`**
+
+```python
+"""Place every part on its parent at finished size; pairs become left/right copies."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+import trimesh
+
+from plush.geometry.feature import feature_mesh
+from plush.geometry.flat_part import flat_part_mesh
+from plush.geometry.limb import limb_mesh
+from plush.geometry.rounded_solid import rounded_solid_mesh
+from plush.parts import Kit
+
+SINK = 0.25  # fraction of a rounded child's height sunk into its parent
+FEATURE_LIFT_IN = 0.01  # gap between a surface feature and the surface (3D view only)
+UP = np.array([0.0, 1.0, 0.0])
+FRONT = np.array([0.0, 0.0, 1.0])
+
+
+@dataclass
+class Placed:
+    """One part in character space (inches)."""
+
+    part_id: str
+    kind: str
+    mesh: trimesh.Trimesh
+    rotation: np.ndarray  # local -> world
+    anchor: np.ndarray | None  # point on the parent's surface where it attaches
+    parent: str | None  # name of the placed parent
+    scale_in: float = 0.0  # inches per kit unit after scaling to the finished height
+
+
+def _rotation(axis: np.ndarray, angle_deg: float) -> np.ndarray:
+    return trimesh.transformations.rotation_matrix(np.radians(angle_deg), axis)[:3, :3]
+
+
+def _unit(v: np.ndarray) -> np.ndarray:
+    return v / np.linalg.norm(v)
+
+
+def _perpendicular(v: np.ndarray, n: np.ndarray, fallback: np.ndarray) -> np.ndarray:
+    p = v - np.dot(v, n) * n
+    if np.linalg.norm(p) < 1e-6:
+        p = fallback - np.dot(fallback, n) * n
+    return _unit(p)
+
+
+def _local_mesh(part, scale_in: float) -> trimesh.Trimesh:
+    builders = {
+        "rounded_solid": rounded_solid_mesh,
+        "limb": limb_mesh,
+        "flat_part": flat_part_mesh,
+        "surface_feature": feature_mesh,
+    }
+    return builders[part.kind](part, scale_in)
+
+
+def _surface_hit(parent: Placed, direction: np.ndarray, name: str) -> tuple[np.ndarray, np.ndarray]:
+    origin = parent.mesh.bounds.mean(axis=0)
+    locations, _, tri = parent.mesh.ray.intersects_location(
+        origin[None, :], direction[None, :], multiple_hits=False
+    )
+    if len(locations) == 0:
+        raise ValueError(f"part {name!r}: no surface found on {parent.part_id!r} in that direction")
+    # blend the corner normals so a hit on a vertex or edge gives a symmetric, smooth normal
+    corners = parent.mesh.faces[tri[0]]
+    weights = trimesh.triangles.points_to_barycentric(
+        parent.mesh.vertices[corners][None, :, :], locations[:1]
+    )[0]
+    normal = _unit(weights @ parent.mesh.vertex_normals[corners])
+    return locations[0], normal
+
+
+def _place(part, parent: Placed | None, scale_in: float, name: str, parent_name: str | None) -> Placed:
+    local = _local_mesh(part, scale_in)
+    if parent is None:
+        return Placed(part.id, part.kind, local, np.eye(3), None, None)
+
+    a = part.attach
+    az, el = np.radians(a.azimuth_deg), np.radians(a.elevation_deg)
+    direction = parent.rotation @ np.array([np.sin(az) * np.cos(el), np.sin(el), np.cos(az) * np.cos(el)])
+    anchor, normal = _surface_hit(parent, _unit(direction), name)
+    up, front = parent.rotation @ UP, parent.rotation @ FRONT
+
+    if part.kind == "surface_feature":
+        z = normal
+        y = _perpendicular(up, z, front)
+        rotation = _rotation(z, a.yaw_deg) @ np.column_stack([np.cross(y, z), y, z])
+        position = anchor + normal * FEATURE_LIFT_IN
+    else:
+        y = normal
+        z = _perpendicular(front, y, up)
+        rotation = np.column_stack([np.cross(y, z), y, z])
+        rotation = _rotation(up, a.yaw_deg) @ rotation
+        grow = rotation[:, 1]
+        pitch_axis = np.cross(grow, up)
+        if np.linalg.norm(pitch_axis) < 1e-6:
+            pitch_axis = rotation[:, 0]
+        rotation = _rotation(_unit(pitch_axis), a.pitch_deg) @ rotation
+        if part.kind == "rounded_solid":
+            position = anchor + rotation[:, 1] * part.height * scale_in * (0.5 - SINK)
+        else:
+            position = anchor
+
+    mesh = local.copy()
+    mesh.vertices = mesh.vertices @ rotation.T + position
+    return Placed(part.id, part.kind, mesh, rotation, anchor, parent_name)
+
+
+def _mirror(placed: Placed, renames: dict[str, str]) -> Placed:
+    flip = np.diag([-1.0, 1.0, 1.0])
+    mesh = trimesh.Trimesh(
+        vertices=placed.mesh.vertices @ flip, faces=placed.mesh.faces[:, ::-1], process=False
+    )
+    anchor = None if placed.anchor is None else placed.anchor @ flip
+    parent = renames.get(placed.parent, placed.parent)
+    return Placed(placed.part_id, placed.kind, mesh, flip @ placed.rotation, anchor, parent)
+
+
+def assemble(kit: Kit, finished_height_in: float) -> dict[str, Placed]:
+    """All parts placed in character space, scaled so the toy is exactly finished_height_in tall.
+
+    A paired part (and everything attached to it) appears twice, named
+    '<id>_left' and '<id>_right'; the right copy is the mirror of the left.
+    """
+    children: dict[str, list] = {p.id: [] for p in kit.parts}
+    root = next(p for p in kit.parts if p.attach is None)
+    for p in kit.parts:
+        if p.attach is not None:
+            children[p.attach.parent].append(p)
+
+    placed: dict[str, Placed] = {}
+
+    def build(part, parent_name: str | None, suffix: str, out: dict[str, Placed]) -> None:
+        name = part.id + suffix
+        parent = None if parent_name is None else out.get(parent_name) or placed[parent_name]
+        out[name] = _place(part, parent, finished_height_in, name, parent_name)
+        for child in children[part.id]:
+            if not child.pair:
+                build(child, name, suffix, out)
+                continue
+            # pairs only hang from symmetric, unpaired parts (enforced in parts.py)
+            side, other = ("_left", "_right") if child.attach.azimuth_deg > 0 else ("_right", "_left")
+            subtree: dict[str, Placed] = {}
+            build(child, name, side, subtree)
+            renames = {n: n[: -len(side)] + other for n in subtree}
+            for sub_name, sub in subtree.items():
+                out[sub_name] = sub
+                out[renames[sub_name]] = _mirror(sub, renames)
+
+    build(root, None, "", placed)
+
+    lo = np.min([p.mesh.bounds[0] for p in placed.values()], axis=0)
+    hi = np.max([p.mesh.bounds[1] for p in placed.values()], axis=0)
+    k = finished_height_in / (hi[1] - lo[1])
+    shift = np.array([0.0, -lo[1] * k, 0.0])  # toy stands on y = 0
+    for p in placed.values():
+        p.mesh.vertices = p.mesh.vertices * k + shift
+        p.scale_in = finished_height_in * k
+        if p.anchor is not None:
+            p.anchor = p.anchor * k + shift
+    return placed
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `36 passed`.
+
+**Step 5:** Commit: `git add engine/plush/geometry engine/tests/test_assemble.py && git commit -m "refactor(engine): expose surface helpers for panel building; Placed.scale_in"`
+
+### Task 3.2: Grid triangulation and flattening
+
+**Files:**
+- Create: `engine/plush/geometry/grid.py` and `engine/plush/flatten.py`
+- Test: `engine/tests/test_flatten.py`
+
+**Step 1: Write the failing test file `engine/tests/test_flatten.py`**
+
+```python
+import numpy as np
+import pytest
+
+from plush.flatten import SeamLink, flatten, flatten_together
+from plush.geometry.rounded_solid import deform, unit_direction
+from plush.geometry.grid import grid_mesh
+from plush.parts import RoundedSolid
+
+
+def uv_area(uv, faces):
+    a, b, c = uv[faces[:, 0]], uv[faces[:, 1]], uv[faces[:, 2]]
+    return float(np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])).sum() / 2)
+
+
+def test_cylinder_cut_along_a_line_unrolls_to_a_rectangle():
+    cols, length = 48, 3.0
+    phi = np.linspace(0, 2 * np.pi, cols + 1)
+    y = np.linspace(0, length, 31)
+    grid = np.stack([np.column_stack([np.cos(phi), np.full_like(phi, yy), np.sin(phi)]) for yy in y])
+    V, F, _ = grid_mesh(grid, collapse_top=False, collapse_bottom=False)
+    flat = flatten(V, F)
+    perimeter = cols * 2 * np.sin(np.pi / cols)  # the mesh's polygon, radius 1
+    assert flat.stretch.max() < 1e-3
+    assert uv_area(flat.uv, F) == pytest.approx(perimeter * length, rel=1e-3)
+
+
+def test_flat_input_stays_flat():
+    gx, gy = np.meshgrid(np.linspace(0, 2, 9), np.linspace(0, 1, 5))
+    grid = np.stack([gx, gy, np.zeros_like(gx)], axis=-1)
+    V, F, _ = grid_mesh(grid, collapse_top=False, collapse_bottom=False)
+    assert flatten(V, F).stretch.max() < 1e-9
+
+
+def test_linked_seam_edges_get_equal_flat_lengths():
+    # a gore of an oval solid: its two side edges differ in 3D, so linking them is a real test
+    part = RoundedSolid(kind="rounded_solid", id="o", name="O", colour="#000000",
+                        width=0.6, height=0.5, depth=0.3)
+    theta, phi = np.linspace(0, np.pi, 31), np.linspace(0.3, 1.1, 9)
+    V, F, idx = grid_mesh(deform(unit_direction(theta[:, None], phi[None, :]), part, 10.0), True, True)
+    left, right = idx[:, 0], idx[:, -1]
+
+    def edge_lengths(uv, chain):
+        return np.linalg.norm(np.diff(uv[chain], axis=0), axis=1)
+
+    free = flatten(V, F).uv
+    assert np.abs(edge_lengths(free, left) / edge_lengths(free, right) - 1).max() > 1e-3
+    linked = flatten_together([(V, F)], [SeamLink(0, left, 0, right)])[0].uv
+    assert np.abs(edge_lengths(linked, left) / edge_lengths(linked, right) - 1).max() < 1e-4
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.flatten'`.
+
+**Step 3: Create `engine/plush/geometry/grid.py`**
+
+```python
+"""Triangulated grids of surface points, shared by the panel builders."""
+
+from __future__ import annotations
+
+import numpy as np
+
+
+def grid_mesh(points: np.ndarray, collapse_top: bool, collapse_bottom: bool) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Triangulate a (rows, cols, 3) grid; a collapsed row becomes a single tip vertex."""
+    rows, cols = points.shape[:2]
+    index = np.zeros((rows, cols), dtype=np.int64)
+    vertices = []
+    for j in range(rows):
+        for i in range(cols):
+            tip = (j == 0 and collapse_top) or (j == rows - 1 and collapse_bottom)
+            if tip and i > 0:
+                index[j, i] = index[j, 0]
+                continue
+            index[j, i] = len(vertices)
+            vertices.append(points[j, i])
+    faces = []
+    for j in range(rows - 1):
+        for i in range(cols - 1):
+            a, b, c, d = index[j, i], index[j, i + 1], index[j + 1, i], index[j + 1, i + 1]
+            faces += [t for t in ([a, c, b], [b, c, d]) if len(set(t)) == 3]
+    return np.array(vertices), np.array(faces, dtype=np.int64), index
+```
+
+**and `engine/plush/flatten.py`**
+
+```python
+"""Flatten 3D panels onto the plane with as little stretch as possible.
+
+All panels of one part are flattened together. Each starts from a
+least-squares conformal map (libigl); then a sparse Levenberg-Marquardt
+solve moves every flat edge toward its 3D length, while holding each pair
+of matching seam edges to the same flat length. Seam sides may ease a
+little along with the fabric, but they always match each other, which is
+what sewing needs. Stretch is reported per mesh edge.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import igl
+import numpy as np
+from scipy.sparse import csr_matrix, identity
+from scipy.sparse.linalg import spsolve
+
+SEAM_WEIGHT = 100.0
+MAX_ITERATIONS = 200
+
+
+@dataclass
+class Flattened:
+    uv: np.ndarray  # (n, 2) inches
+    edges: np.ndarray  # (m, 2) vertex indices
+    stretch: np.ndarray  # (m,) |flat length / 3D length - 1|
+
+
+@dataclass
+class SeamLink:
+    """Two chains of vertices (panel index, vertex indices) that are sewn together, in matching order."""
+
+    a_panel: int
+    a_chain: np.ndarray
+    b_panel: int
+    b_chain: np.ndarray
+
+
+def flatten(vertices: np.ndarray, faces: np.ndarray) -> Flattened:
+    """Flatten a single panel."""
+    return flatten_together([(vertices, faces)], [])[0]
+
+
+def flatten_together(meshes: list[tuple[np.ndarray, np.ndarray]], links: list[SeamLink]) -> list[Flattened]:
+    starts, x0, edge_sets, lengths = [], [], [], []
+    offset = 0
+    for V, F in meshes:
+        V, F = np.asarray(V, float), np.asarray(F, np.int64)
+        E = igl.edges(F)
+        L = np.linalg.norm(V[E[:, 0]] - V[E[:, 1]], axis=1)
+        x0.append(_initial_uv(V, F, E, L))
+        starts.append(offset)
+        edge_sets.append(E + offset)
+        lengths.append(L)
+        offset += len(V)
+
+    E_all = np.vstack(edge_sets)
+    L_all = np.concatenate(lengths)
+    pairs_a, pairs_b, pair_len = [], [], []
+    for link in links:
+        ga, gb = link.a_chain + starts[link.a_panel], link.b_chain + starts[link.b_panel]
+        pairs_a.append(np.column_stack([ga[:-1], ga[1:]]))
+        pairs_b.append(np.column_stack([gb[:-1], gb[1:]]))
+        V = np.asarray(meshes[link.a_panel][0], float)
+        pair_len.append(np.linalg.norm(V[link.a_chain[1:]] - V[link.a_chain[:-1]], axis=1))
+    A = np.vstack(pairs_a) if pairs_a else np.zeros((0, 2), np.int64)
+    B = np.vstack(pairs_b) if pairs_b else np.zeros((0, 2), np.int64)
+    P = np.concatenate(pair_len) if pair_len else np.zeros(0)
+
+    x = _solve(np.concatenate([u.ravel() for u in x0]), E_all, L_all, A, B, P)
+    uv_all = x.reshape(-1, 2)
+
+    out = []
+    for (V, F), start, E, L in zip(meshes, starts, edge_sets, lengths):
+        uv = uv_all[start : start + len(V)].copy()
+        F = np.asarray(F, np.int64)
+        if _signed_area(uv, F) < 0:  # keep the outside of the fabric facing up
+            uv[:, 0] *= -1
+        local_E = E - start
+        flat = np.linalg.norm(uv[local_E[:, 0]] - uv[local_E[:, 1]], axis=1)
+        out.append(Flattened(uv=uv, edges=local_E, stretch=np.abs(flat / L - 1)))
+    return out
+
+
+def _initial_uv(V: np.ndarray, F: np.ndarray, E: np.ndarray, L: np.ndarray) -> np.ndarray:
+    if np.ptp(V, axis=0).min() < 1e-12:  # already flat: use the plane's own coordinates
+        keep = np.sort(np.argsort(np.ptp(V, axis=0))[1:])
+        return V[:, keep]
+    loop = igl.boundary_loop(F)
+    pins = np.array([loop[0], loop[len(loop) // 2]], dtype=np.int64)
+    uv, _ = igl.lscm(V, F, pins, np.array([[0.0, 0.0], [1.0, 0.0]]))
+    flat = np.linalg.norm(uv[E[:, 0]] - uv[E[:, 1]], axis=1)
+    return uv * (L @ flat) / (flat @ flat)
+
+
+def _signed_area(uv: np.ndarray, F: np.ndarray) -> float:
+    a, b, c = uv[F[:, 0]], uv[F[:, 1]], uv[F[:, 2]]
+    return float(np.sum((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])))
+
+
+def _solve(x, E, L, A, B, P) -> np.ndarray:
+    """Least squares: edges toward 3D length; matching seam edges toward equal flat length."""
+    m, k, n = len(E), len(A), len(x)
+
+    def cols(idx):
+        return np.column_stack([2 * idx[:, 0], 2 * idx[:, 0] + 1, 2 * idx[:, 1], 2 * idx[:, 1] + 1])
+
+    rows_e = np.repeat(np.arange(m), 4)
+    cols_e = cols(E).ravel()
+    rows_s = np.repeat(np.arange(m, m + k), 8)
+    cols_s = np.column_stack([cols(A), cols(B)]).ravel()
+
+    def evaluate(x):
+        X = x.reshape(-1, 2)
+        de, da, db = X[E[:, 0]] - X[E[:, 1]], X[A[:, 0]] - X[A[:, 1]], X[B[:, 0]] - X[B[:, 1]]
+        le, la, lb = (np.linalg.norm(d, axis=1) for d in (de, da, db))
+        r = np.concatenate([(le - L) / L, SEAM_WEIGHT * (la - lb) / P])
+        return r, (de, da, db, le, la, lb)
+
+    def jacobian(parts):
+        de, da, db, le, la, lb = parts
+        ge = de / (L * le)[:, None]
+        ga = SEAM_WEIGHT * da / (P * la)[:, None]
+        gb = -SEAM_WEIGHT * db / (P * lb)[:, None]
+        data = np.concatenate([np.column_stack([ge, -ge]).ravel(), np.column_stack([ga, -ga, gb, -gb]).ravel()])
+        return csr_matrix((data, (np.r_[rows_e, rows_s], np.r_[cols_e, cols_s])), shape=(m + k, n))
+
+    r, parts = evaluate(x)
+    cost, damping = r @ r, 1e-3
+    for _ in range(MAX_ITERATIONS):
+        J = jacobian(parts)
+        H, g = (J.T @ J).tocsc(), -(J.T @ r)
+        while damping <= 1e8:
+            step = spsolve(H + damping * identity(n, format="csc"), g)
+            r_new, parts_new = evaluate(x + step)
+            new_cost = r_new @ r_new
+            if new_cost < cost:
+                break
+            damping *= 4
+        if damping > 1e8:
+            break
+        improvement = cost - new_cost
+        x, r, parts, cost = x + step, r_new, parts_new, new_cost
+        damping = max(damping / 3, 1e-12)
+        if improvement < 1e-14 * max(cost, 1e-30):
+            break
+    return x
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `39 passed`.
+
+**Step 5:** Commit: `git add engine/plush/geometry/grid.py engine/plush/flatten.py engine/tests/test_flatten.py && git commit -m "feat(engine): flatten panels together with matched seams"`
+
+### Task 3.3: Panel constructions and choosing the panel count
+
+**Files:** create `engine/plush/panels.py`; test `engine/tests/test_panels.py`.
+
+**Step 1: Write the failing test file `engine/tests/test_panels.py`**
+
+```python
+import json
+
+import numpy as np
+import pytest
+
+from plush.geometry.assemble import assemble
+from plush.panels import (PanelError, build_panels, choose_gores, flat_part_panels, gore_panels,
+                          strip_panels)
+from plush.parts import FlatPart, Limb, RoundedSolid, parse_kit
+from plush.settings import load_settings
+
+from kits import bear
+
+LIMIT = load_settings().max_flatten_stretch
+
+
+def ball(**kw):
+    base = {"kind": "rounded_solid", "id": "ball", "name": "Ball", "colour": "#000000",
+            "width": 0.5, "height": 0.5, "depth": 0.5}
+    return RoundedSolid(**{**base, **kw})
+
+
+def limb(**kw):
+    base = {"kind": "limb", "id": "leg", "name": "Leg", "colour": "#000000", "length": 0.3,
+            "start_thickness": 0.1, "end_thickness": 0.1, "end_shape": "flat_sole",
+            "attach": {"parent": "body", "azimuth_deg": 90, "elevation_deg": 0}}
+    return Limb(**{**base, **kw})
+
+
+def uv_area(p):
+    a, b, c = (p.uv[p.faces[:, k]] for k in range(3))
+    return float(((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])).sum() / 2)
+
+
+@pytest.fixture(scope="module")
+def bear_panels():
+    kit = parse_kit(json.dumps(bear()))
+    return build_panels(kit, assemble(kit, 12.0), load_settings())
+
+
+def test_sphere_gores_are_equal_and_stand_upright():
+    panels = gore_panels(ball(), 12.0, 10)
+    assert len(panels) == 10
+    areas = [uv_area(p) for p in panels]
+    assert max(areas) == pytest.approx(min(areas), rel=0.005)
+    for p in panels:
+        top, bottom = p.uv[p.upright[0]].mean(axis=0), p.uv[p.upright[1]].mean(axis=0)
+        assert top[1] > bottom[1] and abs(top[0] - bottom[0]) < 1e-6 * np.ptp(p.uv[:, 1])
+
+
+def test_flat_bottom_adds_a_base_sewn_to_every_gore():
+    panels = gore_panels(ball(flat_bottom=True), 12.0, 8)
+    names = [p.name for p in panels]
+    assert names[-1] == "ball/base" and len(names) == 9
+    base_seams = {e.seam for e in panels[-1].edges}
+    assert base_seams == {f"ball:b{k}" for k in range(8)}
+
+
+def test_straight_limb_is_one_strip_and_a_sole_without_stretch():
+    panels = strip_panels(limb(), 10.0, 1)
+    assert [p.name for p in panels] == ["leg/strip1", "leg/sole"]
+    assert panels[0].max_stretch < 1e-3  # a straight tube unrolls exactly
+    for end in ("round", "point"):  # no sole on a rounded or pointed end
+        assert [p.name for p in strip_panels(limb(end_shape=end), 10.0, 8)] == [f"leg/strip{k}" for k in range(1, 9)]
+
+
+def test_flat_part_is_a_front_and_a_mirrored_back():
+    ear = FlatPart(kind="flat_part", id="ear", name="Ear", colour="#C8A27A", inner_colour="#F2D0D9",
+                   outline="round", width=0.12, height=0.12,
+                   attach={"parent": "head", "azimuth_deg": 50, "elevation_deg": 60})
+    front, back = flat_part_panels(ear, 12.0)
+    assert (front.colour, back.colour) == ("#F2D0D9", "#C8A27A")
+    assert np.allclose(back.uv, front.uv * [-1, 1])
+    assert front.max_stretch == back.max_stretch == 0.0
+
+
+def test_pairs_are_built_once_and_cut_twice(bear_panels):
+    names = list(bear_panels.panels)
+    assert not any("_left" in n or "_right" in n for n in names)
+    for p in bear_panels.panels.values():
+        expected = (2, 1) if p.part in ("ear", "arm") else (1, 0)
+        assert (p.cut, p.mirrored) == expected, p.name
+
+
+def test_fewest_gores_that_meet_the_stretch_limit():
+    panels, n = choose_gores(ball(), 12.0, LIMIT)
+    assert max(p.max_stretch for p in panels) <= LIMIT
+    assert max(p.max_stretch for p in gore_panels(ball(), 12.0, n - 1)) > LIMIT
+
+
+def test_unreachable_limit_names_the_part():
+    with pytest.raises(PanelError, match="part 'ball'"):
+        choose_gores(ball(), 12.0, 1e-6)
+
+
+def test_every_3d_panel_faces_outward(bear_panels):
+    by_part: dict[str, list] = {}
+    for p in bear_panels.panels.values():
+        by_part.setdefault(p.part, []).append(p)
+    for part, panels in by_part.items():
+        if part == "ear":  # flat pieces: checked by the front/back test
+            continue
+        centre = np.vstack([p.vertices for p in panels]).mean(axis=0)
+        for p in panels:
+            tri = p.vertices[p.faces]
+            normals = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+            outward = np.einsum("ij,ij->i", normals, tri.mean(axis=1) - centre)
+            assert (outward > 0).mean() > 0.99, p.name
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.panels'`.
+
+**Step 3: Create `engine/plush/panels.py`**
+
+```python
+"""Sewing panels: each part's surface cut along seams into flat pieces of fabric.
+
+Constructions (version 1, low-stretch fabrics):
+- rounded solid: gores from top to bottom, plus a flat base if the part has a flat bottom;
+- limb: strips along its length (one strip = a tube with one seam), plus a sole for a flat end;
+- flat part: a front and a back piece cut from the outline.
+The engine uses the fewest gores or strips whose panels flatten within the
+stretch limit. Surface features become templates in a later phase.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Literal
+
+import numpy as np
+import shapely
+from scipy.spatial import Delaunay
+from shapely.geometry import Polygon
+
+from plush.flatten import SeamLink, flatten_together
+from plush.geometry.assemble import Placed
+from plush.geometry.flat_part import outline_triangulation
+from plush.geometry.grid import grid_mesh
+from plush.geometry.limb import limb_rings, ring_frame, ring_points
+from plush.geometry.rounded_solid import bottom_theta, deform, unit_direction
+from plush.parts import FlatPart, Kit, Limb, RoundedSolid
+from plush.settings import Settings
+
+ALONG = 40  # grid rows from top to bottom of a gore
+AROUND = 48  # grid columns around the whole part
+MAX_PANELS = 12
+FIRST_TRY = 8
+GAP = (1 / 3, 2 / 3)  # the middle third of the back seam is left open for turning and stuffing
+
+
+class PanelError(ValueError):
+    """No construction of a part meets the stretch limit."""
+
+
+@dataclass
+class Edge:
+    kind: Literal["seam", "attachment"]
+    seam: str | None
+    vertices: np.ndarray  # panel vertex indices along the edge
+
+
+@dataclass
+class Panel:
+    name: str
+    part: str
+    colour: str
+    vertices: np.ndarray  # 3D, in the part's own frame, inches
+    faces: np.ndarray
+    uv: np.ndarray  # flattened, inches; the panel's top is toward +y
+    stretch: np.ndarray  # per mesh edge
+    edges: list[Edge]
+    cut: int = 1  # how many to cut
+    mirrored: int = 0  # how many of those are cut as a mirror image
+    upright: tuple[np.ndarray, np.ndarray] | None = None  # (top, bottom) vertices; the flat piece stands top-up
+
+    @property
+    def max_stretch(self) -> float:
+        return float(self.stretch.max()) if len(self.stretch) else 0.0
+
+
+@dataclass
+class Seam:
+    id: str
+    part: str
+    sides: list[tuple[str, int]]  # (panel name, index into that panel's edges)
+    gap: tuple[float, float] | None = None  # fraction of the seam left open
+
+
+@dataclass
+class PanelSet:
+    panels: dict[str, Panel] = field(default_factory=dict)
+    seams: dict[str, Seam] = field(default_factory=dict)
+
+    def add(self, panels: list[Panel]) -> None:
+        for p in panels:
+            self.panels[p.name] = p
+            for i, e in enumerate(p.edges):
+                if e.kind == "seam":
+                    self.seams.setdefault(e.seam, Seam(e.seam, p.part, [])).sides.append((p.name, i))
+
+
+def _unflattened(name, part, colour, vertices, faces, edges, top=None, bottom=None) -> Panel:
+    upright = None if top is None else (np.asarray(top), np.asarray(bottom))
+    return Panel(name, part, colour, np.asarray(vertices, float), np.asarray(faces, np.int64),
+                 np.zeros((len(vertices), 2)), np.zeros(0), edges, upright=upright)
+
+
+def flatten_part(panels: list[Panel]) -> list[Panel]:
+    """Flatten a part's panels together so the sides of every seam match, then stand each upright."""
+    chains: dict[str, list[tuple[int, np.ndarray]]] = {}
+    for i, p in enumerate(panels):
+        for e in p.edges:
+            if e.kind == "seam":
+                chains.setdefault(e.seam, []).append((i, e.vertices))
+    links = [SeamLink(a[0], a[1], b[0], b[1]) for a, b in (c for c in chains.values() if len(c) == 2)]
+    flats = flatten_together([(p.vertices, p.faces) for p in panels], links)
+    for p, flat in zip(panels, flats):
+        uv = flat.uv - flat.uv.mean(axis=0)
+        if p.upright is not None:
+            top, bottom = p.upright
+            up = uv[top].mean(axis=0) - uv[bottom].mean(axis=0)
+            angle = np.pi / 2 - np.arctan2(up[1], up[0])
+            c, s = np.cos(angle), np.sin(angle)
+            uv = uv @ np.array([[c, s], [-s, c]])
+        p.uv, p.stretch = uv, flat.stretch
+    return panels
+
+
+def _flat_disc(name, part, colour, ring: np.ndarray, origin, ax_u, ax_v, outward, edges_by_segment) -> Panel:
+    """A flat panel (base or sole) whose outline is `ring`, lying in the plane origin + (u, v).
+
+    Its triangles face `outward`, like every other panel.
+    """
+    flat_ring = np.column_stack([(ring - origin) @ ax_u, (ring - origin) @ ax_v])
+    outline = Polygon(flat_ring)
+    lo, hi = flat_ring.min(axis=0), flat_ring.max(axis=0)
+    gu, gv = np.meshgrid(np.linspace(lo[0], hi[0], 16)[1:-1], np.linspace(lo[1], hi[1], 16)[1:-1])
+    inner = np.column_stack([gu.ravel(), gv.ravel()])
+    inside = outline.buffer(-0.02 * float(np.ptp(flat_ring, axis=0).min()))
+    inner = inner[shapely.contains_xy(inside, inner[:, 0], inner[:, 1])]
+    uv = np.vstack([flat_ring, inner])
+    faces = Delaunay(uv).simplices
+    centroids = uv[faces].mean(axis=1)
+    faces = faces[shapely.contains_xy(outline, centroids[:, 0], centroids[:, 1])]
+    e1, e2 = uv[faces[:, 1]] - uv[faces[:, 0]], uv[faces[:, 2]] - uv[faces[:, 0]]
+    clockwise = (e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]) < 0
+    faces[clockwise] = faces[clockwise][:, ::-1]  # all counter-clockwise in (u, v) ...
+    if np.dot(np.cross(ax_u, ax_v), outward) < 0:
+        faces = faces[:, ::-1]  # ... then turned to face outward
+    vertices = origin + np.outer(uv[:, 0], ax_u) + np.outer(uv[:, 1], ax_v)
+    return _unflattened(name, part, colour, vertices, faces, edges_by_segment)
+
+
+def gore_panels(part: RoundedSolid, scale_in: float, n: int, name: str | None = None) -> list[Panel]:
+    """n gores from the top down, seams on meridians starting at the back; plus a base if flat-bottomed."""
+    name = name or part.id
+    theta = np.linspace(0.0, bottom_theta(part), ALONG + 1)
+    cols = max(4, int(np.ceil(AROUND / n)))
+    seam_phi = np.pi + 2 * np.pi * np.arange(n + 1) / n
+    panels, ring = [], []
+    for k in range(n):
+        phi = np.linspace(seam_phi[k], seam_phi[k + 1], cols + 1)
+        grid = deform(unit_direction(theta[:, None], phi[None, :]), part, scale_in)
+        V, F, idx = grid_mesh(grid, collapse_top=True, collapse_bottom=not part.flat_bottom)
+        edges = [Edge("seam", f"{name}:m{k}", idx[:, 0]), Edge("seam", f"{name}:m{(k + 1) % n}", idx[:, -1])]
+        if part.flat_bottom:
+            edges.append(Edge("seam", f"{name}:b{k}", idx[-1, :]))
+            ring.append(grid[-1, :-1])
+        panels.append(_unflattened(f"{name}/gore{k + 1}", part.id, part.colour, V, F, edges, idx[0, :], idx[-1, :]))
+    if part.flat_bottom:
+        ring = np.vstack(ring)
+        segs = [np.r_[np.arange(k * cols, (k + 1) * cols), ((k + 1) * cols) % len(ring)] for k in range(n)]
+        base_edges = [Edge("seam", f"{name}:b{k}", segs[k]) for k in range(n)]
+        origin = np.array([0.0, ring[0, 1], 0.0])
+        panels.append(_flat_disc(f"{name}/base", part.id, part.colour, ring, origin,
+                                 np.array([1.0, 0, 0]), np.array([0, 0, 1.0]), np.array([0, -1.0, 0]),
+                                 base_edges))
+    return flatten_part(panels)
+
+
+def strip_panels(part: Limb, scale_in: float, n: int, name: str | None = None) -> list[Panel]:
+    """n strips along the limb (n = 1 is a tube with one back seam), plus a sole for a flat end."""
+    name = name or part.id
+    rings, tip = limb_rings(part, scale_in)
+    cols = max(4, int(np.ceil(AROUND / n)))
+    seam_phi = -np.pi / 2 + 2 * np.pi * np.arange(n + 1) / n
+    panels, end_ring = [], []
+    for k in range(n):
+        phi = np.linspace(seam_phi[k], seam_phi[k + 1], cols + 1)
+        rows = [ring_points(c, d, r, phi) for c, d, r in rings]
+        if tip is not None:
+            rows.append(np.repeat(tip[None, :], cols + 1, axis=0))
+        grid = np.stack(rows)
+        V, F, idx = grid_mesh(grid, collapse_top=False, collapse_bottom=tip is not None)
+        edges = [Edge("attachment", None, idx[0, :]),
+                 Edge("seam", f"{name}:s{k}", idx[:, 0]),
+                 Edge("seam", f"{name}:s{(k + 1) % n}", idx[:, -1])]
+        if tip is None:
+            edges.append(Edge("seam", f"{name}:sole{k}", idx[-1, :]))
+            end_ring.append(grid[-1, :-1])
+        panels.append(_unflattened(f"{name}/strip{k + 1}", part.id, part.colour, V, F, edges, idx[-1, :], idx[0, :]))
+    if tip is None:
+        ring = np.vstack(end_ring)
+        segs = [np.r_[np.arange(k * cols, (k + 1) * cols), ((k + 1) * cols) % len(ring)] for k in range(n)]
+        centre, tangent, _ = rings[-1]
+        ax_u, ax_v = ring_frame(tangent)
+        panels.append(_flat_disc(f"{name}/sole", part.id, part.colour, ring, centre, ax_u, ax_v, tangent,
+                                 [Edge("seam", f"{name}:sole{k}", segs[k]) for k in range(n)]))
+    return flatten_part(panels)
+
+
+def flat_part_panels(part: FlatPart, scale_in: float, name: str | None = None) -> list[Panel]:
+    """Front and back pieces cut from the outline; the front uses the inner colour if there is one."""
+    name = name or part.id
+    pts, tri, nb = outline_triangulation(part, scale_in)
+    vertices = np.column_stack([pts, np.zeros(len(pts))])
+    outline, base = np.arange(nb), np.array([nb - 1, 0])
+    edges = [Edge("seam", f"{name}:outline", outline), Edge("attachment", None, base)]
+    zero = np.zeros(0)
+    front = Panel(f"{name}/front", part.id, part.inner_colour or part.colour, vertices, tri, pts.copy(),
+                  zero, edges)
+    back = Panel(f"{name}/back", part.id, part.colour, vertices, tri[:, ::-1], pts * [-1, 1],
+                 zero, [Edge(e.kind, e.seam, e.vertices.copy()) for e in edges])
+    return [front, back]
+
+
+def _fewest(build, lowest: int, limit: float, label: str) -> tuple[list[Panel], int]:
+    """Smallest panel count whose panels all flatten within `limit`; the count below it must fail.
+
+    Stretch falls roughly with the square of the panel count, so one trial at
+    FIRST_TRY predicts the answer; the search then steps to the exact smallest
+    passing count. This avoids slow, hopeless trials with very few panels.
+    """
+    built: dict[int, list[Panel]] = {}
+
+    def worst(n: int) -> float:
+        if n not in built:
+            built[n] = build(n)
+        return max(p.max_stretch for p in built[n])
+
+    first = min(max(FIRST_TRY, lowest), MAX_PANELS)
+    guess = int(np.ceil(first * np.sqrt(worst(first) / limit)))
+    n = min(max(guess, lowest), MAX_PANELS)
+    while worst(n) > limit:
+        if n == MAX_PANELS:
+            raise PanelError(
+                f"part {label!r}: no construction meets the {limit:.1%} stretch limit "
+                f"(best was {worst(n):.2%} with {n} panels)"
+            )
+        n += 1
+    while n > lowest and worst(n - 1) <= limit:
+        n -= 1
+    return built[n], n
+
+
+def choose_gores(part: RoundedSolid, scale_in: float, limit: float) -> tuple[list[Panel], int]:
+    return _fewest(lambda n: gore_panels(part, scale_in, n), 2, limit, part.id)
+
+
+def choose_strips(part: Limb, scale_in: float, limit: float) -> tuple[list[Panel], int]:
+    return _fewest(lambda n: strip_panels(part, scale_in, n), 1, limit, part.id)
+
+
+def build_panels(kit: Kit, placed: dict[str, Placed], settings: Settings) -> PanelSet:
+    """Panels and seams for every part. A pair is built once and cut twice (once mirrored)."""
+    by_id = {p.id: p for p in kit.parts}
+    result = PanelSet()
+    for name, pl in placed.items():
+        if name.endswith("_right") or pl.kind == "surface_feature":
+            continue
+        part = by_id[pl.part_id]
+        if pl.kind == "rounded_solid":
+            panels, _ = choose_gores(part, pl.scale_in, settings.max_flatten_stretch)
+        elif pl.kind == "limb":
+            panels, _ = choose_strips(part, pl.scale_in, settings.max_flatten_stretch)
+        else:
+            panels = flat_part_panels(part, pl.scale_in)
+        if name.endswith("_left"):
+            for p in panels:
+                p.cut, p.mirrored = 2, 1
+        result.add(panels)
+        if pl.kind == "rounded_solid":
+            result.seams[f"{part.id}:m0"].gap = GAP
+    return result
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `47 passed`.
+
+**Step 5:** Commit: `git add engine/plush/panels.py engine/tests/test_panels.py && git commit -m "feat(engine): gores, strips, flat pieces; fewest panels within the stretch limit"`
+
+### Task 3.4: Seam lengths and notches
+
+**Files:** create `engine/plush/seams.py`; test `engine/tests/test_seams.py`.
+
+**Step 1: Write the failing test file `engine/tests/test_seams.py`**
+
+```python
+import json
+
+import numpy as np
+import pytest
+import shapely
+
+from plush.geometry.assemble import assemble
+from plush.panels import build_panels
+from plush.parts import parse_kit
+from plush.seams import notches, polyline_length, side_lengths, side_points, side_points_3d
+from plush.settings import load_settings
+
+from kits import bear
+
+SETTINGS = load_settings()
+
+
+@pytest.fixture(scope="module")
+def panels():
+    kit = parse_kit(json.dumps(bear()))
+    return build_panels(kit, assemble(kit, 12.0), SETTINGS)
+
+
+def test_every_seam_joins_two_matching_sides(panels):
+    for seam in panels.seams.values():
+        assert len(seam.sides) == 2, seam.id
+        a, b = (side_points_3d(panels, s) for s in seam.sides)
+        assert np.abs(a - b).max() < 1e-9, seam.id
+
+
+def test_seam_sides_have_equal_length(panels):
+    for seam in panels.seams.values():
+        a, b = side_lengths(panels, seam)
+        assert abs(a - b) <= SETTINGS.seam_length_diff_in, seam.id
+
+
+def test_notches_match_and_are_close_enough(panels):
+    for seam in panels.seams.values():
+        sides = notches(panels, seam, SETTINGS.notch_spacing_in)
+        assert len(sides[0]) == len(sides[1]), seam.id
+        intervals = len(sides[0]) + 1
+        for side, marks in zip(seam.sides, sides):
+            pts = side_points(panels, side)
+            assert polyline_length(pts) / intervals <= SETTINGS.notch_spacing_in + 1e-9, seam.id
+            line = shapely.LineString(pts)
+            assert all(line.distance(shapely.Point(m)) < 1e-9 for m in marks), seam.id
+
+
+def test_each_closed_part_has_one_stuffing_gap_on_its_back_seam(panels):
+    gaps = {s.id for s in panels.seams.values() if s.gap is not None}
+    assert gaps == {"body:m0", "head:m0"}
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.seams'`.
+
+**Step 3: Create `engine/plush/seams.py`**
+
+```python
+"""Seam measurements: side lengths, matching notches."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from plush.panels import PanelSet, Seam
+
+
+def side_points(ps: PanelSet, side: tuple[str, int]) -> np.ndarray:
+    """Flattened points along one side of a seam, in order."""
+    panel, edge = side
+    p = ps.panels[panel]
+    return p.uv[p.edges[edge].vertices]
+
+
+def side_points_3d(ps: PanelSet, side: tuple[str, int]) -> np.ndarray:
+    panel, edge = side
+    p = ps.panels[panel]
+    return p.vertices[p.edges[edge].vertices]
+
+
+def polyline_length(points: np.ndarray) -> float:
+    return float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+
+
+def side_lengths(ps: PanelSet, seam: Seam) -> list[float]:
+    return [polyline_length(side_points(ps, s)) for s in seam.sides]
+
+
+def point_at_fraction(points: np.ndarray, fractions: np.ndarray) -> np.ndarray:
+    seg = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    s = np.r_[0.0, np.cumsum(seg)]
+    target = np.asarray(fractions) * s[-1]
+    return np.column_stack([np.interp(target, s, points[:, k]) for k in range(points.shape[1])])
+
+
+def notches(ps: PanelSet, seam: Seam, spacing_in: float) -> list[np.ndarray]:
+    """Matching notch points on each side, evenly spaced no more than spacing_in apart."""
+    length = float(np.mean(side_lengths(ps, seam)))
+    intervals = max(1, int(np.ceil(length / spacing_in)))
+    fractions = np.arange(1, intervals) / intervals
+    return [point_at_fraction(side_points(ps, s), fractions) for s in seam.sides]
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `51 passed`.
+
+**Step 5:** Commit: `git add engine/plush/seams.py engine/tests/test_seams.py && git commit -m "feat(engine): seam side lengths and matching notches"`
+
+### Task 3.5: Record Phase 3
+
+Add "Phase 3 done: 51 passed, 0 failed, 0 skipped" with the date to `docs/PROGRESS.md`, then commit it.
 
 ## Phase 4: Stuffing correction
 
@@ -1611,7 +2848,9 @@ Simulate sewn panels as a low-stretch membrane under internal pressure, by minim
 - The final deviation is lower than the starting deviation.
 - If the loop hasn't converged when it reaches the iteration cap, the result is returned with `converged=False` and the measured values. It is never raised silently.
 
-**Acceptance:** 54 passed.
+**Task 4.3: Gore-count comparison for the owner.** For the test bear's head and a 6 in ball, run the stuffing correction with 6, 8 and 12 gores. Record check 3's mean and worst deviation for each in PROGRESS.md, then ask the owner whether to keep the 3% flattening-stretch limit. This is a measurement, not a test.
+
+**Acceptance:** 57 passed.
 
 ## Phase 5: Finishing and checks 1, 3, 4 and 5
 
@@ -1633,7 +2872,7 @@ Simulate sewn panels as a low-stretch membrane under internal pressure, by minim
 
 Check 3 is covered by Task 4.2.
 
-**Acceptance:** 65 passed.
+**Acceptance:** 68 passed.
 
 ## Phase 6: Outputs, and checks 2 and 6
 
@@ -1662,7 +2901,7 @@ Check 3 is covered by Task 4.2.
 
 **Task 6.5: Unapproved settings** — 1 test: while `approved_by_owner = false`, page 1 says "Tolerance settings not yet approved by owner".
 
-**Acceptance:** 80 passed.
+**Acceptance:** 83 passed.
 
 ## Phase 7: Projects, versions, check 7 and the local service
 
@@ -1683,7 +2922,7 @@ Check 3 is covered by Task 4.2.
 
 **Task 7.3: Measure.** Time POST `/mesh` for the bear on this Mac and record the measured number in PROGRESS.md. The owner judges whether editing feels responsive. Only if it doesn't, propose a TypeScript port of the geometry with a parity test, and ask before building it.
 
-**Acceptance:** 89 passed.
+**Acceptance:** 92 passed.
 
 ## Phase 8: Reading the picture (hosted vision model)
 
@@ -1702,7 +2941,7 @@ Then expand this phase.
 - Run: `cd engine && uv run pytest -m live -q`, only with approval.
 - Live tests are not counted in the default totals.
 
-**Acceptance:** 91 passed in the default run, with the live results recorded separately.
+**Acceptance:** 94 passed in the default run, with the live results recorded separately.
 
 ## Phase 9: Angular front end
 

@@ -13,17 +13,18 @@ Read this file and `git log` before starting any work session.
 - [x] Phase 1: part-kit format. 2026-10-12: 16 passed, 0 failed, 0 skipped.
 - [x] Phase 2: part geometry. 2026-10-12: 35 passed, 0 failed, 0 skipped. Added the `rtree` dependency and two kit rules: reserved `_left`/`_right` ids, and pairs only on symmetric parts.
 - [x] Gate G2: owner approved all starting values in `engine/settings.toml` (2026-10-12).
-- [ ] Phase 3: panels, flattening, seams (expected 48)
-- [ ] Phase 4: stuffing correction (expected 54)
-- [ ] Phase 5: finishing and checks (expected 65)
-- [ ] Phase 6: outputs (expected 80)
-- [ ] Phase 7: projects and local service (expected 89)
-- [ ] Phase 8: picture reading (expected 91, plus live tests run with approval)
+- [ ] Phase 3: panels, flattening, seams (expected 51; expanded in the plan 2026-10-12)
+- [ ] Phase 4: stuffing correction (expected 57)
+- [ ] Phase 5: finishing and checks (expected 68)
+- [ ] Phase 6: outputs (expected 83)
+- [ ] Phase 7: projects and local service (expected 92)
+- [ ] Phase 8: picture reading (expected 94, plus live tests run with approval)
 - [ ] Phase 9: Angular front end (expected 10 Angular tests)
 - [ ] Phase 10: documentation and end-to-end run
 
 ## Open items waiting on the owner (approval gates in the plan)
 
+- After Phase 4: review check-3 results for 6, 8 and 12 gores, and decide whether to keep the 3% flattening-stretch limit (owner's choice, 2026-10-12).
 - G3: choose the vision model from OpenRouter's list (Phase 8).
 - G4: supply real pictures and approve the live reading test (Phase 8).
 - G5: approve the end-to-end run with a real picture (Phase 10).
@@ -32,3 +33,8 @@ Read this file and `git log` before starting any work session.
 ## Known issues in the existing app (being replaced, not patched)
 
 See the critique's findings C1, C2 and M1 to M10. The design replaces the code involved.
+
+## Decisions recorded during the work
+
+- 2026-10-12: side panels plus a gusset removed from version 1. They need stretchy fabric; measurements are in the design doc. Rounded parts use gores, plus a flat base when the part has a flat bottom.
+- 2026-10-12: the 3% stretch limit kept for now, to be revisited after Phase 4.

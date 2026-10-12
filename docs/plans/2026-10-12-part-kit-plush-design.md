@@ -19,12 +19,14 @@ You upload a picture of a cartoon or drawn character. The app builds a 3D model 
 | Approach | A part kit. The AI reads the picture into a parts list, the 3D model is built from the parts, and the patterns come from each part's known construction. No image-to-3D model. |
 | Where the picture is read | A hosted vision model through OpenRouter. The owner picks the model from the current OpenRouter list when that step is built. The picture leaves the Mac. |
 | Fabrics | Low-stretch only: felt, cotton, linen and other wovens, modelled as not stretching. The fabric setting keeps a stretch value so measured stretchy fabrics can be added later. |
+| Rounded parts (changed 2026-10-12 after measurement) | Gores only, plus a flat base when the part has a flat bottom. Side panels with a gusset are removed from version 1. Flattened with low-stretch fabric, a side panel spanning 30° needed 5.2% stretch and one spanning 60° needed 19.7%, against the 3% limit. They return with stretchy fabrics. Approved by the owner on 2026-10-12. |
 | Paper and units | US Letter, in inches. |
 | Who writes the directions | The app, from fixed templates. No AI in version 1. |
 
 ## Out of scope for version 1
 
 - Image-to-3D generation (TRELLIS.2, Hunyuan3D).
+- Side panels with a gusset on rounded parts (they need stretchy fabric; see Decisions).
 - Free sculpting.
 - Humanoid characters with hair or clothing.
 - Stretchy fabrics such as minky and fleece.
@@ -88,7 +90,7 @@ You upload a picture of a cartoon or drawn character. The app builds a 3D model 
 
 **Constructions:**
 
-- **Rounded solid:** gores, or two side panels plus a gusset. The engine chooses based on the shape and the owner can override. It uses the fewest panels that stay within tolerance.
+- **Rounded solid:** gores from top to bottom, plus a flat base when the part has a flat bottom. The engine uses the fewest gores that stay within tolerance. (Side panels plus a gusset were removed on 2026-10-12; see Decisions.)
 - **Limb:** a single wrapped panel with an inside seam, plus a sole for a flat end. A bent limb gets an inner and an outer piece.
 - **Flat part:** two mirror-image pieces, with an optional contrast fabric on the inside.
 - **Surface feature:** a true-size appliqué template, an embroidery guide, or a safety-eye hole mark.
@@ -97,7 +99,7 @@ You upload a picture of a cartoon or drawn character. The app builds a 3D model 
 
 1. Build the part's 3D surface at finished size.
 2. Place seams on it according to the construction.
-3. Flatten each panel with a stretch-minimising method (least-squares conformal mapping or as-rigid-as-possible). Measure the remaining stretch. If it's over the limit, add a dart or another panel.
+3. Flatten all of a part's panels together. Start from least-squares conformal mapping, then move every edge toward its true length while holding matching seam edges to equal length. Seam sides may ease slightly along with the fabric, but they always match each other. Measure the remaining stretch. If it's over the limit, add another panel.
 4. **Stuffing correction.** Sew the panels together virtually, inflate them with internal pressure using the low-stretch fabric model, and compare the result with the target shape. Adjust the panel outlines and repeat until the shape is within tolerance.
 5. **Seam matching.** Make both sides of every seam equal in length. Add notches along each seam and at attachment points, and mark a stuffing gap on each closed part.
 6. **Finishing.** Add an even outward seam allowance (a true offset, not a scaled shape), grain and fur-direction arrows, and a label: name, cut count, mirror flag and fabric.
