@@ -86,3 +86,53 @@ def test_json_schema_carries_the_fixed_lists():
     for value in ("flat_sole", "long_oval", "safety_eye", "rounded_solid", "surface_feature"):
         assert f'"{value}"' in schema
     assert Kit.model_json_schema()["additionalProperties"] is False
+
+
+def test_rejects_two_roots():
+    kit = bear()
+    del part(kit, "head")["attach"]
+    with pytest.raises(ValidationError, match="exactly one root part"):
+        parse_kit(json.dumps(kit))
+
+
+def test_rejects_paired_root():
+    kit = bear()
+    part(kit, "body")["pair"] = True
+    with pytest.raises(ValidationError, match="cannot be a pair"):
+        parse_kit(json.dumps(kit))
+
+
+def test_rejects_unknown_parent():
+    kit = bear()
+    part(kit, "ear")["attach"]["parent"] = "hat"
+    with pytest.raises(ValidationError, match="unknown part 'hat'"):
+        parse_kit(json.dumps(kit))
+
+
+def test_rejects_duplicate_ids():
+    kit = bear()
+    part(kit, "arm")["id"] = "ear"
+    with pytest.raises(ValidationError, match="duplicate part ids"):
+        parse_kit(json.dumps(kit))
+
+
+def test_rejects_attaching_to_a_surface_feature():
+    kit = bear()
+    part(kit, "ear")["attach"]["parent"] = "eye"
+    with pytest.raises(ValidationError, match="cannot attach to surface feature"):
+        parse_kit(json.dumps(kit))
+
+
+def test_rejects_paired_part_on_centre_line():
+    kit = bear()
+    part(kit, "ear")["attach"]["azimuth_deg"] = 0
+    with pytest.raises(ValidationError, match="off the centre line"):
+        parse_kit(json.dumps(kit))
+
+
+def test_rejects_attachment_loop():
+    kit = bear()
+    part(kit, "head")["attach"]["parent"] = "arm"
+    part(kit, "arm")["attach"]["parent"] = "head"
+    with pytest.raises(ValidationError, match="attachment loop"):
+        parse_kit(json.dumps(kit))
