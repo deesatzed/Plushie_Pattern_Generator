@@ -14,7 +14,17 @@ Read this file and `git log` before starting any work session.
 - [x] Phase 2: part geometry. 2026-10-12: 35 passed, 0 failed, 0 skipped. Added the `rtree` dependency and two kit rules: reserved `_left`/`_right` ids, and pairs only on symmetric parts.
 - [x] Gate G2: owner approved all starting values in `engine/settings.toml` (2026-10-12).
 - [x] Phase 3: panels, flattening, seams. 2026-10-12: 51 passed, 0 failed, 0 skipped. The test bear's panels: body 8 gores + base, head 10 gores, arm 8 strips, ear front + back; worst stretch 2.92%; seam sides match within 0.000006 in.
-- [ ] Phase 4: stuffing correction (expected 58; expanded in the plan 2026-10-12)
+- [x] Phase 4: stuffing correction. 2026-10-12: 58 passed, 0 failed, 0 skipped (full run takes about 56 s). The Mylar balloon check passes within 3% (in the dry-run, a 2.20% rim and 1.88% thickness error at the default 2-stage stiffness; 3 stages are now used).
+  - Task 4.3 gore comparison, from `cd engine && uv run python tools/gore_comparison.py` (2026-10-12):
+
+    | Shape | Gores | Flattening stretch (check 4, limit 3%) | Stuffed deviation mean / worst (check 3, limits 3% / 8%) | Passes 3 / 4 |
+    |---|---|---|---|---|
+    | Ball, 6.00 in across | 6 | 6.63% | 0.71% / 2.49% | yes / no |
+    | Ball, 6.00 in across | 8 | 3.71% | 0.42% / 1.44% | yes / no |
+    | Ball, 6.00 in across | 12 | 1.55% | 0.23% / 0.58% | yes / yes |
+    | Bear head, 5.78 in across | 6 | 7.37% | 0.67% / 2.98% | yes / no |
+    | Bear head, 5.78 in across | 8 | 4.39% | 0.39% / 1.59% | yes / no |
+    | Bear head, 5.78 in across | 12 | 1.87% | 0.22% / 0.68% | yes / yes |
 - [ ] Phase 5: finishing and checks (expected 69)
 - [ ] Phase 6: outputs (expected 84)
 - [ ] Phase 7: projects and local service (expected 93)
