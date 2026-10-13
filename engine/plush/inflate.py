@@ -15,7 +15,7 @@ import numpy as np
 import trimesh
 from scipy.optimize import minimize
 
-from plush.panels import Panel, PanelSet
+from plush.panels import Panel, weld
 
 STIFFNESS = (1e2, 1e3, 1e4)  # fabric stiffness per unit pressure, relative to part size; raised in stages
 
@@ -39,44 +39,18 @@ class Inflated:
 
 def membrane_from_panels(panels: list[Panel]) -> Membrane:
     """Weld a part's panels along their seams. Attachment edges are held fixed."""
-    ps = PanelSet()
-    ps.add(panels)
-    offset, start = 0, {}
-    for p in panels:
-        start[p.name] = offset
-        offset += len(p.vertices)
-    V = np.vstack([p.vertices for p in panels])
-    F = np.vstack([p.faces + start[p.name] for p in panels])
-    U = np.vstack([p.uv for p in panels])
-
-    parent = np.arange(len(V))
-
-    def root(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for seam in ps.seams.values():
-        (pa, ea), (pb, eb) = seam.sides
-        chain_a = ps.panels[pa].edges[ea].vertices + start[pa]
-        chain_b = ps.panels[pb].edges[eb].vertices + start[pb]
-        for i, j in zip(chain_a, chain_b):
-            ri, rj = root(i), root(j)
-            if ri != rj:
-                parent[max(ri, rj)] = min(ri, rj)
-    roots = np.array([root(i) for i in range(len(V))])
-    kept, welded = np.unique(roots, return_inverse=True)
-
-    fixed = np.zeros(len(kept), bool)
-    for p in panels:
+    V, F, welded = weld(panels)
+    starts = np.cumsum([0] + [len(p.vertices) for p in panels])
+    fixed = np.zeros(len(V), bool)
+    for p, start in zip(panels, starts):
         for e in p.edges:
             if e.kind == "attachment":
-                fixed[welded[e.vertices + start[p.name]]] = True
-
-    u0, u1, u2 = U[F[:, 0]], U[F[:, 1]], U[F[:, 2]]
+                fixed[welded[e.vertices + start]] = True
+    raw = np.vstack([p.faces + start for p, start in zip(panels, starts)])
+    U = np.vstack([p.uv for p in panels])
+    u0, u1, u2 = U[raw[:, 0]], U[raw[:, 1]], U[raw[:, 2]]
     rest = np.stack([u1 - u0, u2 - u0], axis=2)
-    return Membrane(V[kept], welded[F], np.linalg.inv(rest), np.abs(np.linalg.det(rest)) / 2, fixed, welded)
+    return Membrane(V, F, np.linalg.inv(rest), np.abs(np.linalg.det(rest)) / 2, fixed, welded)
 
 
 def _stretch_energy(X, m: Membrane, k: float):

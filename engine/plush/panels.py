@@ -15,6 +15,7 @@ from typing import Literal
 
 import numpy as np
 import shapely
+import trimesh
 from scipy.spatial import Delaunay
 from shapely.geometry import Polygon
 
@@ -22,7 +23,8 @@ from plush.flatten import SeamLink, flatten_together
 from plush.geometry.assemble import Placed
 from plush.geometry.flat_part import outline_triangulation
 from plush.geometry.grid import grid_mesh
-from plush.geometry.limb import limb_rings, ring_frame, ring_points
+from plush.geometry.limb import RINGS as RINGS_IN_TUBE
+from plush.geometry.limb import limb_rings, ring_frame, ring_points, tube_points
 from plush.geometry.rounded_solid import bottom_theta, deform, unit_direction
 from plush.parts import FlatPart, Kit, Limb, RoundedSolid
 from plush.settings import Settings
@@ -32,6 +34,8 @@ AROUND = 48  # grid columns around the whole part
 MAX_PANELS = 12
 FIRST_TRY = 8
 GAP = (1 / 3, 2 / 3)  # the middle third of the back seam is left open for turning and stuffing
+TRIM_BACK = 1.0  # how far (in limb lengths) the tube is extended back into its parent when trimming
+TRIM_SAMPLES = 161
 
 
 class PanelError(ValueError):
@@ -164,8 +168,32 @@ def gore_panels(part: RoundedSolid, scale_in: float, n: int, name: str | None = 
     return flatten_part(panels)
 
 
-def strip_panels(part: Limb, scale_in: float, n: int, name: str | None = None) -> list[Panel]:
-    """n strips along the limb (n = 1 is a tube with one back seam), plus a sole for a flat end."""
+def trim_start(part: Limb, scale_in: float, phi: np.ndarray, inside) -> np.ndarray:
+    """For each ring angle, the length fraction where the tube leaves its parent.
+
+    `inside(points)` gives the signed distance of limb-frame points into the parent
+    (positive inside). The tube is extended straight back into the parent and cut
+    where it crosses the parent's surface, so the opening lies on that surface.
+    """
+    s = np.linspace(-TRIM_BACK, 1.0, TRIM_SAMPLES)
+    pts = tube_points(part, scale_in, s[:, None], phi[None, :])  # (samples, cols, 3)
+    depth = inside(pts.reshape(-1, 3)).reshape(len(s), len(phi))
+    start = np.zeros(len(phi))
+    for i in range(len(phi)):
+        out = np.nonzero(depth[:, i] <= 0)[0]
+        if len(out) == 0 or out[0] == 0:
+            continue  # never inside, or already outside at the far end: keep the plain start
+        j = out[0]
+        a, b = depth[j - 1, i], depth[j, i]
+        start[i] = s[j - 1] + (s[j] - s[j - 1]) * a / (a - b)
+    return start
+
+
+def strip_panels(part: Limb, scale_in: float, n: int, name: str | None = None, inside=None) -> list[Panel]:
+    """n strips along the limb (n = 1 is a tube with one back seam), plus a sole for a flat end.
+
+    With `inside` (see trim_start), the open end is cut where the limb meets its parent.
+    """
     name = name or part.id
     rings, tip = limb_rings(part, scale_in)
     cols = max(4, int(np.ceil(AROUND / n)))
@@ -174,6 +202,11 @@ def strip_panels(part: Limb, scale_in: float, n: int, name: str | None = None) -
     for k in range(n):
         phi = np.linspace(seam_phi[k], seam_phi[k + 1], cols + 1)
         rows = [ring_points(c, d, r, phi) for c, d, r in rings]
+        if inside is not None:
+            start = trim_start(part, scale_in, phi, inside)
+            t = np.linspace(0.0, 1.0, RINGS_IN_TUBE)
+            tube = tube_points(part, scale_in, start[None, :] + (1 - start[None, :]) * t[:, None], phi[None, :])
+            rows = list(tube) + rows[RINGS_IN_TUBE:]
         if tip is not None:
             rows.append(np.repeat(tip[None, :], cols + 1, axis=0))
         grid = np.stack(rows)
@@ -243,8 +276,55 @@ def choose_gores(part: RoundedSolid, scale_in: float, limit: float) -> tuple[lis
     return _fewest(lambda n: gore_panels(part, scale_in, n), 2, limit, part.id)
 
 
-def choose_strips(part: Limb, scale_in: float, limit: float) -> tuple[list[Panel], int]:
-    return _fewest(lambda n: strip_panels(part, scale_in, n), 1, limit, part.id)
+def choose_strips(part: Limb, scale_in: float, limit: float, inside=None) -> tuple[list[Panel], int]:
+    return _fewest(lambda n: strip_panels(part, scale_in, n, inside=inside), 1, limit, part.id)
+
+
+def weld(panels: list[Panel]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Join a part's panels along their seams into one surface.
+
+    Returns positions, faces and, for every panel vertex (panels taken in order), its welded vertex.
+    """
+    ps = PanelSet()
+    ps.add(panels)
+    start, offset = {}, 0
+    for p in panels:
+        start[p.name] = offset
+        offset += len(p.vertices)
+    V = np.vstack([p.vertices for p in panels])
+    F = np.vstack([p.faces + start[p.name] for p in panels])
+    parent = np.arange(len(V))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for seam in ps.seams.values():
+        (pa, ea), (pb, eb) = seam.sides
+        for i, j in zip(ps.panels[pa].edges[ea].vertices + start[pa], ps.panels[pb].edges[eb].vertices + start[pb]):
+            ri, rj = root(i), root(j)
+            if ri != rj:
+                parent[max(ri, rj)] = min(ri, rj)
+    roots = np.array([root(i) for i in range(len(V))])
+    kept, welded = np.unique(roots, return_inverse=True)
+    return V[kept], welded[F], welded
+
+
+def closed_surface(panels: list[Panel]) -> trimesh.Trimesh:
+    V, F, _ = weld(panels)
+    return trimesh.Trimesh(V, F, process=False)
+
+
+def _inside_parent(child: Placed, parent: Placed, parent_panels: list[Panel]):
+    """Signed depth (positive inside) of child-frame points in the parent's sewn shape."""
+    surface = closed_surface(parent_panels)
+
+    def inside(points: np.ndarray) -> np.ndarray:
+        local = (points @ child.rotation.T + child.translation - parent.translation) @ parent.rotation
+        return trimesh.proximity.signed_distance(surface, local)
+    return inside
 
 
 def build_panels(kit: Kit, placed: dict[str, Placed], settings: Settings) -> PanelSet:
@@ -258,7 +338,10 @@ def build_panels(kit: Kit, placed: dict[str, Placed], settings: Settings) -> Pan
         if pl.kind == "rounded_solid":
             panels, _ = choose_gores(part, pl.scale_in, settings.max_flatten_stretch)
         elif pl.kind == "limb":
-            panels, _ = choose_strips(part, pl.scale_in, settings.max_flatten_stretch)
+            parent = placed[pl.parent]
+            parent_panels = [p for p in result.panels.values() if p.part == parent.part_id]
+            inside = _inside_parent(pl, parent, parent_panels) if parent.kind == "rounded_solid" else None
+            panels, _ = choose_strips(part, pl.scale_in, settings.max_flatten_stretch, inside)
         else:
             panels = flat_part_panels(part, pl.scale_in)
         if name.endswith("_left"):

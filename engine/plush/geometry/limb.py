@@ -66,6 +66,29 @@ def limb_rings(part: Limb, scale_in: float) -> tuple[list[tuple[np.ndarray, np.n
     return rings, None
 
 
+def tube_points(part: Limb, scale_in: float, s: np.ndarray, phi: np.ndarray) -> np.ndarray:
+    """Points on the tube at length fraction s (may be below 0: a straight extension back into the
+    parent, used to trim the limb where it meets the parent) and ring angle phi. Shapes broadcast."""
+    s, phi = np.broadcast_arrays(np.asarray(s, float), np.asarray(phi, float))
+    length = part.length * scale_in
+    theta = np.radians(part.bend_deg)
+    sc = np.clip(s, 0.0, 1.0)
+    if theta < 1e-9:
+        centre = np.stack([np.zeros_like(sc), length * sc, np.zeros_like(sc)], -1)
+        tangent = np.broadcast_to(np.array([0.0, 1.0, 0.0]), centre.shape)
+    else:
+        radius = length / theta
+        a = theta * sc
+        centre = np.stack([np.zeros_like(a), radius * np.sin(a), radius * (1 - np.cos(a))], -1)
+        tangent = np.stack([np.zeros_like(a), np.cos(a), np.sin(a)], -1)
+    back = np.minimum(s, 0.0)[..., None]  # straight extension before the start
+    centre = centre + back * length * np.array([0.0, 1.0, 0.0])
+    r = ((1 - sc) * part.start_thickness + sc * part.end_thickness) / 2 * scale_in
+    x_axis = np.array([1.0, 0.0, 0.0])
+    b_axis = np.cross(x_axis, tangent)
+    return centre + r[..., None] * (np.cos(phi)[..., None] * x_axis + np.sin(phi)[..., None] * b_axis)
+
+
 def limb_mesh(part: Limb, scale_in: float) -> trimesh.Trimesh:
     rings, tip = limb_rings(part, scale_in)
     if tip is None:  # flat sole: a disc closing the end
