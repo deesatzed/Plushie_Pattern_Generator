@@ -6840,24 +6840,515 @@ Add "Phase 6 done: 95 passed, 0 failed, 0 skipped" with the date to `docs/PROGRE
 
 ## Phase 7: Projects, versions, check 7 and the local service
 
-**Task 7.0: Expand.**
+**Task 7.0: Expand. Done 2026-10-12.** Developed and run in a scratch copy first: 104 passed (about 3 min 11 s).
 
-**Task 7.1: `engine/plush/projects.py`.** The folder layout is `projects/<slug>/` containing `picture.*`, `kit-v<n>.json`, `approved.json`, `pattern/`, `report.json` and `pattern.pdf`. The version ID is the sha256 of the canonical kit JSON plus the finished height. 4 tests (using `tmp_path`):
-- Creating a project stores the picture.
-- Drafts are saved as numbered versions.
-- Approving records the version ID.
-- Check 7: building from a draft that changed since approval is refused, and the pattern carries the approved version ID.
+Notes from expanding:
+- **One module runs the whole pipeline.** `plush/pattern.py` takes an approved kit through pieces, stuffing, outputs and all seven checks. The PDF is written to a working file and moved into place only when all seven pass. A failed build leaves no printable PDF.
+- **The printed pattern carries its version.** Check 7's result is listed on the PDF cover as `version <first 12 hex>`.
+- **Pictures arrive as base64 inside JSON,** so FastAPI needs no extra upload package.
+- **The service's real entry point refuses to start without `OPENROUTER_API_KEY` and `PLUSH_VISION_MODEL`.** It is built lazily, through module `__getattr__`, so tests can import the module without those settings. Tests use `create_app` and never need a fake key.
+- **Task 7.3 measurement, in the scratch copy:** POST `/mesh` for the test bear has a median of 90 ms, worst 116 ms over 10 requests, with a 633 KB response.
+- **Known warning:** Starlette's test client recommends the `httpx2` package (2.13.1 on PyPI). It is a deprecation warning only, so the package is not added.
 
-**Task 7.2: `engine/plush/server.py`** (FastAPI, run with `uv run uvicorn plush.server:app --host 127.0.0.1 --port 8765`). 5 tests, using FastAPI's in-process `TestClient` against the real app:
-- Starting without `OPENROUTER_API_KEY` or `PLUSH_VISION_MODEL` raises an error that names them.
-- An invalid kit sent with PUT gets a 422 containing the validation message.
-- POST `/mesh` returns meshes for the bear.
-- POST `/pattern` on an unapproved project gets a 409.
-- The full flow (approve → pattern) returns a report with 7 checks. A PDF is served only when all 7 pass; otherwise the response is 409 listing the failing checks.
+### Task 7.1: Project folders and approved versions
 
-**Task 7.3: Measure.** Time POST `/mesh` for the bear on this Mac and record the measured number in PROGRESS.md. The owner judges whether editing feels responsive. Only if it doesn't, propose a TypeScript port of the geometry with a parity test, and ask before building it.
+**Files:** create `engine/plush/projects.py`; test `engine/tests/test_projects.py`.
 
-**Acceptance:** 104 passed.
+**Step 1: Write the failing test file `engine/tests/test_projects.py`**
+
+```python
+import json
+
+import pytest
+
+from plush.parts import parse_kit
+from plush.projects import ApprovalError, Projects, version_id
+
+from kits import bear, part
+
+
+@pytest.fixture
+def projects(tmp_path):
+    return Projects(tmp_path / "projects")
+
+
+def test_creating_a_project_stores_the_picture(projects):
+    slug = projects.create("Rule-check Bear!", b"\x89PNG not a real picture", "png")
+    assert slug == "rule-check-bear"
+    assert (projects.folder(slug) / "picture.png").read_bytes() == b"\x89PNG not a real picture"
+    assert projects.create("Rule-check Bear!", b"x", "png") == "rule-check-bear-2"
+
+
+def test_drafts_are_numbered_versions(projects):
+    slug = projects.create("bear", b"x", "png")
+    kit = parse_kit(json.dumps(bear()))
+    assert projects.save_draft(slug, kit) == 1
+    assert projects.save_draft(slug, kit) == 2
+    assert [p.name for p in projects.drafts(slug)] == ["kit-v1.json", "kit-v2.json"]
+
+
+def test_approving_records_the_version_id(projects):
+    slug = projects.create("bear", b"x", "png")
+    kit = parse_kit(json.dumps(bear()))
+    projects.save_draft(slug, kit)
+    vid = projects.approve(slug, 12.0)
+    assert vid == version_id(kit, 12.0) and len(vid) == 64
+    assert projects.approved(slug)["draft"] == "kit-v1.json"
+    _, height, check = projects.check_approved(slug)
+    assert height == 12.0 and check.passed and check.number == 7
+
+
+def test_check_7_refuses_a_model_changed_since_approval(projects):
+    slug = projects.create("bear", b"x", "png")
+    projects.save_draft(slug, parse_kit(json.dumps(bear())))
+    projects.approve(slug, 12.0)
+    changed = bear()
+    part(changed, "arm")["length"] = 0.3
+    projects.save_draft(slug, parse_kit(json.dumps(changed)))
+    with pytest.raises(ApprovalError, match="changed after it was approved"):
+        projects.check_approved(slug)
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.projects'`.
+
+**Step 3: Create `engine/plush/projects.py`**
+
+```python
+"""Projects on disk: one folder per character, numbered kit drafts, and the approved version.
+
+projects/<slug>/
+    picture.<ext>          the uploaded picture
+    kit-v<n>.json          every saved draft, numbered
+    approved.json          the approved draft, finished height and version id
+    report.json            the seven check results for the last pattern build
+    pattern.pdf            present only when the last build passed all seven checks
+
+The version id is the sha256 of the approved kit (canonical JSON) and the finished height.
+Check 7: a pattern can only be built from the approved version, unchanged.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+from plush.checks import CheckResult
+from plush.parts import Kit, parse_kit
+
+
+class ApprovalError(ValueError):
+    """There is no approved version, or the model changed after approval."""
+
+
+def canonical(kit: Kit) -> str:
+    return json.dumps(kit.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+
+
+def version_id(kit: Kit, finished_height_in: float) -> str:
+    return hashlib.sha256(f"{canonical(kit)}|{finished_height_in!r}".encode()).hexdigest()
+
+
+class Projects:
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def folder(self, slug: str) -> Path:
+        folder = self.root / slug
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,60}", slug) or not folder.is_dir():
+            raise KeyError(f"no project {slug!r}")
+        return folder
+
+    def create(self, name: str, picture: bytes, extension: str) -> str:
+        base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "character"
+        slug, n = base, 1
+        while (self.root / slug).exists():
+            n += 1
+            slug = f"{base}-{n}"
+        folder = self.root / slug
+        folder.mkdir()
+        (folder / f"picture.{extension.lower().lstrip('.')}").write_bytes(picture)
+        return slug
+
+    def list(self) -> list[str]:
+        return sorted(p.name for p in self.root.iterdir() if p.is_dir())
+
+    def drafts(self, slug: str) -> list[Path]:
+        return sorted(self.folder(slug).glob("kit-v*.json"), key=lambda p: int(p.stem.split("-v")[1]))
+
+    def save_draft(self, slug: str, kit: Kit) -> int:
+        n = len(self.drafts(slug)) + 1
+        (self.folder(slug) / f"kit-v{n}.json").write_text(canonical(kit))
+        return n
+
+    def latest(self, slug: str) -> Kit:
+        drafts = self.drafts(slug)
+        if not drafts:
+            raise ApprovalError(f"project {slug!r} has no saved model yet")
+        return parse_kit(drafts[-1].read_text())
+
+    def approve(self, slug: str, finished_height_in: float) -> str:
+        kit = self.latest(slug)
+        vid = version_id(kit, finished_height_in)
+        record = {"draft": self.drafts(slug)[-1].name, "finished_height_in": finished_height_in,
+                  "version_id": vid, "approved_at": datetime.now(timezone.utc).isoformat()}
+        (self.folder(slug) / "approved.json").write_text(json.dumps(record, indent=2))
+        return vid
+
+    def approved(self, slug: str) -> dict | None:
+        path = self.folder(slug) / "approved.json"
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def check_approved(self, slug: str) -> tuple[Kit, float, CheckResult]:
+        """Check 7. Raises ApprovalError if there is nothing to build from."""
+        record = self.approved(slug)
+        if record is None:
+            raise ApprovalError(f"project {slug!r} has no approved model")
+        kit = self.latest(slug)
+        current = version_id(kit, record["finished_height_in"])
+        if current != record["version_id"]:
+            raise ApprovalError(f"project {slug!r}: the model changed after it was approved; approve it again")
+        return kit, record["finished_height_in"], CheckResult(
+            7, "Matches the approved model", True, f"version {current[:12]}", "the approved version")
+
+    def save_report(self, slug: str, checks: list[CheckResult], version: str) -> None:
+        report = {"version_id": version, "checks": [asdict(c) for c in checks]}
+        (self.folder(slug) / "report.json").write_text(json.dumps(report, indent=2))
+
+    def pdf_path(self, slug: str) -> Path:
+        return self.folder(slug) / "pattern.pdf"
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `99 passed`.
+
+**Step 5:** Commit: `git add engine/plush/projects.py engine/tests/test_projects.py && git commit -m "feat(engine): project folders, numbered drafts, approved versions (check 7)"`
+
+### Task 7.2: Pipeline and local service
+
+**Files:**
+- Create: `engine/plush/pattern.py` and `engine/plush/server.py`
+- Test: `engine/tests/test_server.py`
+
+**Step 1: Write the failing test file `engine/tests/test_server.py`**
+
+```python
+import base64
+import io
+
+import pytest
+from fastapi.testclient import TestClient
+from pypdf import PdfReader
+
+from plush.server import app_from_env, create_app
+
+from kits import bear, part
+
+
+@pytest.fixture(scope="module")
+def client(tmp_path_factory):
+    return TestClient(create_app(tmp_path_factory.mktemp("projects")))
+
+
+def new_project(client, name="bear"):
+    body = {"name": name, "picture_base64": base64.b64encode(b"\x89PNG test picture").decode(), "media_type": "image/png"}
+    return client.post("/api/projects", json=body).json()["slug"]
+
+
+def test_service_will_not_start_without_picture_reading_settings(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("PLUSH_VISION_MODEL", raising=False)
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY and PLUSH_VISION_MODEL"):
+        app_from_env()
+
+
+def test_an_invalid_kit_is_rejected_with_the_reason(client):
+    slug = new_project(client)
+    kit = bear()
+    part(kit, "arm")["end_shape"] = "claw"
+    response = client.put(f"/api/projects/{slug}/kit", json=kit)
+    assert response.status_code == 422
+    assert any("end_shape" in str(e["loc"]) for e in response.json()["detail"])
+
+
+def test_mesh_returns_every_placed_part(client):
+    slug = new_project(client)
+    assert client.put(f"/api/projects/{slug}/kit", json=bear()).status_code == 200
+    parts = client.post(f"/api/projects/{slug}/mesh", json={"finished_height_in": 12}).json()["parts"]
+    assert set(parts) == {"body", "head", "ear_left", "ear_right", "arm_left", "arm_right", "eye_left", "eye_right"}
+    assert all(len(p["vertices"]) > 0 and len(p["faces"]) > 0 for p in parts.values())
+
+
+def test_no_pattern_without_approval(client):
+    slug = new_project(client)
+    client.put(f"/api/projects/{slug}/kit", json=bear())
+    assert client.post(f"/api/projects/{slug}/pattern").status_code == 409
+    assert client.get(f"/api/projects/{slug}/pattern.pdf").status_code == 404
+
+
+def test_approved_bear_builds_a_pattern_that_passes_all_seven_checks(client):
+    slug = new_project(client)
+    client.put(f"/api/projects/{slug}/kit", json=bear())
+    vid = client.post(f"/api/projects/{slug}/approve", json={"finished_height_in": 12}).json()["version_id"]
+    response = client.post(f"/api/projects/{slug}/pattern")
+    report = response.json()
+    assert response.status_code == 200, [c for c in report["checks"] if not c["passed"]]
+    assert [c["number"] for c in report["checks"]] == [1, 2, 3, 4, 5, 6, 7]
+    assert report["version_id"] == vid
+    pdf = client.get(f"/api/projects/{slug}/pattern.pdf")
+    assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf"
+    cover = PdfReader(io.BytesIO(pdf.content)).pages[0].extract_text()
+    assert f"version {vid[:12]}" in cover  # the printed pattern carries its approved version
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.server'`.
+
+**Step 3: Create `engine/plush/pattern.py`**
+
+```python
+"""The whole pipeline: approved part kit -> pieces -> stuffing -> outputs -> the seven checks.
+
+The PDF is written to a working file, checked (check 2), and only moved to `pdf_path`
+when all seven checks pass. A failed pattern never leaves a printable PDF behind.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from plush.checks import CheckResult, check_flattening_stretch, check_seams_match, check_sewable, check_stuffed_shape
+from plush.directions import check_directions, directions
+from plush.finishing import Pattern, finish
+from plush.geometry.assemble import assemble
+from plush.layout import cutting_layout
+from plush.materials import materials
+from plush.panels import build_panels
+from plush.parts import Kit
+from plush.pdf import check_true_scale, sheet_layout, write_pdf
+from plush.settings import Settings
+from plush.stuffing import stuff_all
+
+
+@dataclass
+class PatternResult:
+    checks: list[CheckResult]  # all seven, in order
+    pattern: Pattern
+    pdf: Path | None  # set only when every check passed
+
+    @property
+    def passed(self) -> bool:
+        return all(c.passed for c in self.checks)
+
+
+def build_pattern(kit: Kit, finished_height_in: float, settings: Settings, pdf_path: Path,
+                  version_check: CheckResult) -> PatternResult:
+    placed = assemble(kit, finished_height_in)
+    ps = build_panels(kit, placed, settings)
+    stuffing = stuff_all(ps, settings)
+    pattern = finish(kit, placed, ps, settings)
+    fabric = cutting_layout(pattern, settings)
+    steps = directions(kit, placed, pattern)
+    mats = materials(kit, placed, fabric, stuffing)
+    sheet = sheet_layout(pattern, settings)
+    checks = [
+        check_seams_match(pattern, settings),
+        check_stuffed_shape(stuffing, settings),
+        check_flattening_stretch(pattern, settings),
+        check_sewable(kit, placed, pattern, settings),
+        check_directions(pattern, steps),
+        version_check,
+    ]
+    title = f"{kit.character_name}, {finished_height_in:g} in tall"
+    working = pdf_path.with_suffix(".checking.pdf")
+    write_pdf(str(working), pattern, sheet, fabric, steps, mats, settings, title, checks)
+    checks.insert(1, check_true_scale(str(working), pattern, sheet, settings))
+    checks.sort(key=lambda c: c.number)
+    if all(c.passed for c in checks):
+        # write again so the cover lists check 2 as well; the drawing is identical
+        write_pdf(str(working), pattern, sheet, fabric, steps, mats, settings, title, checks)
+        os.replace(working, pdf_path)
+        return PatternResult(checks, pattern, pdf_path)
+    working.unlink(missing_ok=True)
+    pdf_path.unlink(missing_ok=True)
+    return PatternResult(checks, pattern, None)
+```
+
+**and `engine/plush/server.py`**
+
+```python
+"""Local web service for the editor. Run: uv run uvicorn plush.server:app --host 127.0.0.1 --port 8765
+
+It listens on this Mac only. The real entry point (`app`) refuses to start unless
+OPENROUTER_API_KEY and PLUSH_VISION_MODEL are set; `create_app` builds the same service
+for tests, with picture reading left out.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import json
+import os
+from dataclasses import asdict
+from pathlib import Path
+
+import numpy as np
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field, ValidationError
+
+from plush.geometry.assemble import assemble
+from plush.parts import parse_kit
+from plush.pattern import build_pattern
+from plush.projects import ApprovalError, Projects
+from plush.settings import Settings, load_settings
+
+REQUIRED_ENV = ("OPENROUTER_API_KEY", "PLUSH_VISION_MODEL")
+DEFAULT_PROJECTS = Path(__file__).resolve().parents[2] / "projects"
+PICTURE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+
+
+class NewProject(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    picture_base64: str
+    media_type: str
+
+
+class Height(BaseModel):
+    finished_height_in: float = Field(gt=2, le=60)
+
+
+def create_app(projects_root: Path, settings: Settings | None = None) -> FastAPI:
+    projects = Projects(projects_root)
+    settings = settings or load_settings()
+    app = FastAPI(title="Plush pattern engine")
+
+    def folder(slug: str):
+        try:
+            return projects.folder(slug)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+
+    @app.get("/api/settings")
+    def get_settings():
+        return asdict(settings)
+
+    @app.post("/api/projects")
+    def new_project(body: NewProject):
+        if body.media_type not in PICTURE_TYPES:
+            raise HTTPException(415, f"picture must be one of {sorted(PICTURE_TYPES)}")
+        try:
+            picture = base64.b64decode(body.picture_base64, validate=True)
+        except binascii.Error as e:
+            raise HTTPException(400, "picture_base64 is not valid base64") from e
+        return {"slug": projects.create(body.name, picture, PICTURE_TYPES[body.media_type])}
+
+    @app.get("/api/projects")
+    def list_projects():
+        return {"projects": projects.list()}
+
+    @app.get("/api/projects/{slug}")
+    def project(slug: str):
+        folder(slug)
+        drafts = projects.drafts(slug)
+        return {"slug": slug, "drafts": len(drafts), "approved": projects.approved(slug),
+                "has_pattern": projects.pdf_path(slug).exists()}
+
+    @app.put("/api/projects/{slug}/kit")
+    def save_kit(slug: str, kit: dict):
+        folder(slug)
+        try:
+            parsed = parse_kit(json.dumps(kit))
+        except ValidationError as e:
+            return JSONResponse(status_code=422, content={"error": "invalid part kit", "detail": e.errors(include_url=False)})
+        return {"draft": projects.save_draft(slug, parsed)}
+
+    @app.get("/api/projects/{slug}/kit")
+    def latest_kit(slug: str):
+        folder(slug)
+        try:
+            return projects.latest(slug).model_dump(mode="json")
+        except ApprovalError as e:
+            raise HTTPException(404, str(e)) from e
+
+    @app.post("/api/projects/{slug}/mesh")
+    def mesh(slug: str, body: Height):
+        folder(slug)
+        try:
+            kit = projects.latest(slug)
+        except ApprovalError as e:
+            raise HTTPException(404, str(e)) from e
+        placed = assemble(kit, body.finished_height_in)
+        return {"parts": {name: {"part": p.part_id, "kind": p.kind,
+                                 "vertices": np.round(p.mesh.vertices, 4).tolist(),
+                                 "faces": p.mesh.faces.tolist()} for name, p in placed.items()}}
+
+    @app.post("/api/projects/{slug}/approve")
+    def approve(slug: str, body: Height):
+        folder(slug)
+        try:
+            return {"version_id": projects.approve(slug, body.finished_height_in)}
+        except ApprovalError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.post("/api/projects/{slug}/pattern")
+    def pattern(slug: str):
+        folder(slug)
+        try:
+            kit, height, version_check = projects.check_approved(slug)
+        except ApprovalError as e:
+            raise HTTPException(409, str(e)) from e
+        result = build_pattern(kit, height, settings, projects.pdf_path(slug), version_check)
+        version = projects.approved(slug)["version_id"]
+        projects.save_report(slug, result.checks, version)
+        report = {"version_id": version, "passed": result.passed, "checks": [asdict(c) for c in result.checks]}
+        return JSONResponse(status_code=200 if result.passed else 409, content=report)
+
+    @app.get("/api/projects/{slug}/pattern.pdf")
+    def pattern_pdf(slug: str):
+        path = projects.pdf_path(folder(slug).name)
+        if not path.exists():
+            raise HTTPException(404, "no printable pattern: build one that passes all seven checks")
+        return FileResponse(path, media_type="application/pdf", filename=f"{slug}-pattern.pdf")
+
+    return app
+
+
+def app_from_env() -> FastAPI:
+    missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError(f"cannot start: set {' and '.join(missing)} (see README)")
+    return create_app(Path(os.environ.get("PLUSH_PROJECTS_DIR", DEFAULT_PROJECTS)))
+
+
+def __getattr__(name: str):
+    # `uvicorn plush.server:app` builds the real app only when asked, so importing this module
+    # in tests does not require the environment to be set
+    if name == "app":
+        return app_from_env()
+    raise AttributeError(name)
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `104 passed`, plus the `httpx2` deprecation warning.
+
+**Step 5:** Commit: `git add engine/plush/pattern.py engine/plush/server.py engine/tests/test_server.py && git commit -m "feat(engine): pattern pipeline and local web service"`
+
+### Task 7.3: Measure the mesh request
+
+Time POST `/mesh` for the test bear (10 requests through the in-process test client) and record the median and worst in `docs/PROGRESS.md`. The owner judges responsiveness in Phase 9.
+
+### Task 7.4: Record Phase 7
+
+Add "Phase 7 done: 104 passed, 0 failed, 0 skipped" with the date to `docs/PROGRESS.md`, then commit.
 
 ## Phase 8: Reading the picture (hosted vision model)
 

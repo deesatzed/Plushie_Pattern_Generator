@@ -35,7 +35,7 @@ Read this file and `git log` before starting any work session.
   - Check 6 (directions complete): pass, 45 steps.
   - Materials: fabric #C8A27A 44 x 19.1 in, fabric #F2D0D9 44 x 2.0 in, stuffing for about 233 cubic inches, 2 safety eyes 0.51 in across.
   - Rendered pages checked by eye (pdftoppm). Labels crowd each other on the cutting layout and around attachment notches; left for polish.
-- [ ] Phase 7: projects and local service (expected 104)
+- [ ] Phase 7: projects and local service (expected 104; expanded in the plan 2026-10-12)
 - [ ] Phase 8: picture reading (expected 106, plus live tests run with approval)
 - [ ] Phase 9: Angular front end (expected 10 Angular tests)
 - [ ] Phase 10: documentation and end-to-end run
