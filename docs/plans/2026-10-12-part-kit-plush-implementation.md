@@ -65,7 +65,7 @@ All Python packages were installed and imported on this Mac (M4 Pro, Python 3.13
 
 | End of phase | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|---|
-| Tests | 2 | 16 | 35 | 51 | 58 | 78 | 93 | 102 | 104 |
+| Tests | 2 | 16 | 35 | 51 | 58 | 78 | 95 | 104 | 106 |
 
 If a phase's expansion changes its test count, update this table in the same commit.
 
@@ -5242,32 +5242,1601 @@ Add "Phase 5 done: 78 passed, 0 failed, 0 skipped" with the date to `docs/PROGRE
 
 ## Phase 6: Outputs, and checks 2 and 6
 
-**Task 6.0: Expand.**
+**Task 6.0: Expand. Done 2026-10-12.** Developed and run in a scratch copy first: 95 passed (about 2 min 21 s).
 
-**Task 6.1: `engine/plush/pdf.py`** (reportlab, Letter 612 × 792 pt, tiled with overlap). Check 2 is `check_true_scale(pdf_path, pattern)`, which reads the PDF's drawing operations with pypdf. 5 tests:
-- The test square measures exactly 144 × 144 pt.
-- Each piece's outline, reassembled across tiles, matches the engine's outline × 72 within 0.01 pt.
-- Every page is 612 × 792.
-- The page map lists every tile.
-- A PDF deliberately drawn at 0.97 scale fails check 2.
+Found while expanding:
+- **reportlab and pypdf are precise enough for check 2.** reportlab writes path coordinates to about 7 significant digits, and pypdf's operator visitor reports each path operation with its transform.
+- **On the test bear (12 in), check 2 passes.** The test square is exact, and every piece's cut line is within 0.0005 pt on all 12 pattern pages. A copy written at 97% fails: the square is off by 4.32 pt.
+- **Surface features are now drawn on the pieces.** Each feature's outline is placed on the 3D model and projected onto its parent's pieces. Appliqué features also become felt templates, cut on the line with no allowance. `_Surface` in `attachments.py` becomes `PartSurface` so `features.py` can use it.
+- **Directions sew in the right order:** panel-to-panel seams first, then bases and soles, and the seam with the stuffing gap last. Steps for paired parts say to repeat for the second copy.
+- **`Inflated` keeps its faces,** so materials can measure the stuffed volume. An open limb end is capped for the volume.
+- **A session fixture builds the test bear once** (`tests/conftest.py`), and `test_checks.py` uses it.
+- **I looked at rendered pages** (pdftoppm): the cover, a pattern page, the cutting layout and directions all read correctly. Labels crowd each other on the cutting layout and around attachment notches. That is left for polish.
+- Phase 6 has 17 tests instead of 15. Expected totals for later phases shift by +2.
 
-**Task 6.2: `engine/plush/layout.py`** (packing pieces on the fabric with the fur running one way) — 4 tests:
-- Every piece fits within the fabric width.
-- No two pieces overlap (intersection area below 1e-9).
-- No piece is rotated, and mirrored pieces are flipped.
-- The fabric length is reported for each colour.
+### Task 6.1: Surface-feature marks and felt templates
 
-**Task 6.3: `engine/plush/directions.py` and check 6** — 4 tests:
-- Every piece appears in exactly one cut step.
-- Every seam appears in exactly one sew step.
-- Removing a step makes check 6 fail and name what's missing.
-- Feature steps come before the seams that close the part.
+**Files:**
+- Modify (replace whole files): `engine/plush/attachments.py` (the `PartSurface` rename) and `engine/plush/finishing.py`
+- Create: `engine/plush/features.py` and `engine/tests/conftest.py`
+- Modify (replace whole file): `engine/tests/test_checks.py`
+- Test: `engine/tests/test_features.py`
 
-**Task 6.4: Materials** — 1 test: the stuffed volume equals the inflated mesh's `trimesh` volume, in cubic inches.
+**Step 1: Create `engine/tests/conftest.py`**
 
-**Task 6.5: Unapproved settings** — 1 test: while `approved_by_owner = false`, page 1 says "Tolerance settings not yet approved by owner".
+```python
+"""The test bear, fully built and stuffed once per test run (stuffing takes most of a minute)."""
 
-**Acceptance:** 93 passed.
+import json
+
+import pytest
+
+from plush.finishing import finish
+from plush.geometry.assemble import assemble
+from plush.panels import build_panels
+from plush.parts import parse_kit
+from plush.settings import load_settings
+from plush.stuffing import stuff_all
+
+from kits import bear
+
+
+@pytest.fixture(scope="session")
+def bear_stuffed():
+    settings = load_settings()
+    kit = parse_kit(json.dumps(bear()))
+    placed = assemble(kit, 12.0)
+    ps = build_panels(kit, placed, settings)
+    stuffing = stuff_all(ps, settings)
+    return kit, placed, finish(kit, placed, ps, settings), stuffing
+```
+
+**Replace `engine/tests/test_checks.py`**
+
+```python
+import copy
+import dataclasses
+import json
+
+import numpy as np
+import pytest
+
+from plush.checks import check_flattening_stretch, check_seams_match, check_sewable, check_stuffed_shape
+from plush.finishing import finish
+from plush.geometry.assemble import assemble
+from plush.panels import build_panels, gore_panels
+from plush.parts import parse_kit
+from plush.settings import load_settings
+
+from kits import bear, part
+
+SETTINGS = load_settings()
+
+
+def build(kit_dict):
+    kit = parse_kit(json.dumps(kit_dict))
+    placed = assemble(kit, 12.0)
+    ps = build_panels(kit, placed, SETTINGS)
+    return kit, placed, ps
+
+
+@pytest.fixture(scope="module")
+def bear_pattern(bear_stuffed):
+    return bear_stuffed
+
+
+def test_check_1_passes_for_the_bear(bear_pattern):
+    _, _, pattern, _ = bear_pattern
+    assert check_seams_match(pattern, SETTINGS).passed
+
+
+def test_check_1_fails_when_one_side_of_a_seam_is_shorter(bear_pattern):
+    kit, placed, pattern, _ = bear_pattern
+    broken = copy.deepcopy(pattern)
+    seam = broken.panels.seams["head:m1"]
+    panel_name, edge = seam.sides[0]
+    panel = broken.panels.panels[panel_name]
+    chain = panel.edges[edge].vertices
+    end, before = panel.uv[chain[-1]], panel.uv[chain[-2]]
+    panel.uv[chain[-1]] = end + (before - end) / np.linalg.norm(before - end) * 0.1  # 0.1 in shorter
+    result = check_seams_match(broken, SETTINGS)
+    assert not result.passed and any("head:m1" in w for w in result.where)
+
+
+def test_check_3_passes_for_the_bear(bear_pattern):
+    *_, stuffing = bear_pattern
+    result = check_stuffed_shape(stuffing, SETTINGS)
+    assert result.passed and "ear" in result.measured  # flat ears are reported as not simulated
+
+
+def test_check_3_fails_against_a_tighter_limit(bear_pattern):
+    *_, stuffing = bear_pattern
+    tight = dataclasses.replace(SETTINGS, stuffed_mean_deviation=0.0001, stuffed_max_deviation=0.0001)
+    result = check_stuffed_shape(stuffing, tight)
+    assert not result.passed and any(w.startswith("head") for w in result.where)
+
+
+def test_check_4_passes_for_the_bear(bear_pattern):
+    _, _, pattern, _ = bear_pattern
+    assert check_flattening_stretch(pattern, SETTINGS).passed
+
+
+def test_check_4_fails_with_too_few_gores(bear_pattern):
+    kit, placed, pattern, _ = bear_pattern
+    broken = copy.deepcopy(pattern)
+    head = next(p for p in kit.parts if p.id == "head")
+    for p in [n for n in broken.panels.panels if n.startswith("head/")]:
+        del broken.panels.panels[p]
+    for p in gore_panels(head, placed["head"].scale_in, 2):
+        broken.panels.panels[p.name] = p
+    result = check_flattening_stretch(broken, SETTINGS)
+    assert not result.passed and all(w.startswith("head/") for w in result.where)
+
+
+def test_check_5_passes_for_the_bear(bear_pattern):
+    kit, placed, pattern, _ = bear_pattern
+    result = check_sewable(kit, placed, pattern, SETTINGS)
+    assert result.passed, result.where
+
+
+def test_check_5_fails_for_an_arm_too_thin_to_turn():
+    thin = bear()
+    part(thin, "arm").update(start_thickness=0.04, end_thickness=0.04)  # about 0.5 in across at 12 in tall
+    kit, placed, ps = build(thin)
+    pattern = finish(kit, placed, ps, SETTINGS)
+    result = check_sewable(kit, placed, pattern, SETTINGS)
+    assert not result.passed and any(w.startswith("arm:") for w in result.where)
+```
+
+**Write the failing test file `engine/tests/test_features.py`**
+
+```python
+import json
+
+import numpy as np
+import pytest
+from shapely.geometry import Polygon
+
+from plush.finishing import finish
+from plush.geometry.assemble import assemble
+from plush.panels import build_panels
+from plush.parts import parse_kit
+from plush.settings import load_settings
+
+from kits import bear
+
+
+def test_safety_eyes_are_marked_on_the_head(bear_stuffed):
+    _, _, pattern, _ = bear_stuffed
+    marks = {name: (panel, label) for name, panel, label, _ in pattern.features}
+    assert set(marks) == {"eye_left", "eye_right"}
+    assert all(panel.startswith("head/") for panel, _ in marks.values())
+    assert marks["eye_left"][1] == "Eye (left) — safety eye"
+
+
+def test_applique_feature_becomes_a_felt_template_without_allowance():
+    kit = bear()
+    kit["parts"].append({"kind": "surface_feature", "id": "nose", "name": "Nose", "colour": "#4A3020",
+                         "shape": "oval", "method": "applique", "width": 0.06, "height": 0.04,
+                         "attach": {"parent": "head", "azimuth_deg": 0, "elevation_deg": -5}})
+    kit = parse_kit(json.dumps(kit))
+    placed = assemble(kit, 12.0)
+    settings = load_settings()
+    pattern = finish(kit, placed, build_panels(kit, placed, settings), settings)
+    template = pattern.pieces["nose/template"]
+    scale = placed["nose"].scale_in
+    assert np.array_equal(template.cut, template.stitch)
+    assert Polygon(template.cut).area == pytest.approx(np.pi * 0.06 * 0.04 * scale**2 / 4, rel=0.01)
+    assert "felt appliqué" in template.label
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: `2 failed, 78 passed`. `Pattern` has no `features` yet, and there is no `nose/template` piece.
+
+**Step 3: Create `engine/plush/features.py`**
+
+```python
+"""Surface features (eyes, noses, mouths, patches): marks on the pieces they sit on, and felt templates.
+
+A feature's outline is placed on the 3D model and projected onto its parent's pieces.
+Appliqué features also become a template piece, cut from felt with no seam allowance.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+
+from plush.attachments import PartSurface
+from plush.geometry.assemble import Placed
+from plush.geometry.feature import feature_outline
+from plush.panels import PanelSet
+from plush.parts import FeatureMethod, Kit
+
+METHOD_WORDS = {
+    FeatureMethod.SAFETY_EYE: "safety eye",
+    FeatureMethod.EMBROIDERY: "embroider",
+    FeatureMethod.APPLIQUE: "felt appliqué",
+}
+
+
+def feature_marks(kit: Kit, ps: PanelSet, placed: dict[str, Placed]) -> list[tuple[str, str, str, np.ndarray]]:
+    """(placed feature name, parent panel, label, flat polyline) for every feature on the model."""
+    by_id = {p.id: p for p in kit.parts}
+    marks = []
+    for name, pl in placed.items():
+        if pl.kind != "surface_feature":
+            continue
+        part = by_id[pl.part_id]
+        parent = placed[pl.parent]
+        outline = feature_outline(part, pl.scale_in)
+        closed = np.vstack([outline, outline[:1]])
+        local = np.column_stack([closed, np.zeros(len(closed))])
+        in_parent = (local @ pl.rotation.T + pl.translation - parent.translation) @ parent.rotation
+        mapped, _ = PartSurface(ps, parent.part_id).flat(in_parent)
+        side = " (left)" if name.endswith("_left") else " (right)" if name.endswith("_right") else ""
+        label = f"{part.name}{side} — {METHOD_WORDS[part.method]}"
+        run_panel, run = None, []
+        for panel, uv in mapped:
+            if panel != run_panel and run:
+                marks.append((name, run_panel, label, np.array(run)))
+                run = []
+            run_panel = panel
+            run.append(uv)
+        marks.append((name, run_panel, label, np.array(run)))
+    return marks
+
+
+def applique_templates(kit: Kit, placed: dict[str, Placed]) -> list[tuple[str, str, np.ndarray, int, int]]:
+    """(part id, label, outline, cut count, mirrored) for each appliqué feature, at true size."""
+    templates, seen = [], set()
+    for name, pl in placed.items():
+        part = next(p for p in kit.parts if p.id == pl.part_id)
+        if pl.kind != "surface_feature" or part.method is not FeatureMethod.APPLIQUE or part.id in seen:
+            continue
+        seen.add(part.id)
+        cut, mirrored = (2, 1) if part.pair else (1, 0)
+        templates.append((part.id, f"{part.name} — felt appliqué — cut {cut}" + (f" ({mirrored} mirrored)" if mirrored else ""),
+                          feature_outline(part, pl.scale_in), cut, mirrored))
+    return templates
+```
+
+**Replace `engine/plush/attachments.py`**
+
+```python
+"""Where each part is sewn onto its parent: placement marks and matching notches on both pieces.
+
+The child's opening is found in 3D: a limb's open end, a flat part's base, or,
+for a rounded part such as a head, the ring where it sinks into its parent
+(it is ladder-stitched on there). Each notch is one 3D point on that opening,
+projected onto both the child's and the parent's pieces, so the marks meet.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+import trimesh
+
+from plush.geometry.assemble import Placed
+from plush.geometry.rounded_solid import deform, unit_direction
+from plush.panels import PanelSet, closed_surface
+from plush.parts import Kit, RoundedSolid
+
+RING_NOTCHES = (0.0, 0.25, 0.5, 0.75)  # quarter marks around a closed opening
+LINE_NOTCHES = (0.5,)  # the middle of a flat part's base
+SAMPLES = 48
+MERIDIAN_SAMPLES = 241
+SPACING_IN = 0.02
+
+
+@dataclass
+class AttachmentMark:
+    child: str  # placed name, e.g. "arm_left"
+    parent: str  # placed name of the parent
+    outline: list[tuple[str, np.ndarray]]  # (parent panel, flat polyline) where the child is sewn on
+    child_outline: list[tuple[str, np.ndarray]]  # (child panel, flat polyline) of the same line on the child
+    parent_notches: list[tuple[str, np.ndarray]]  # (parent panel, flat point)
+    child_notches: list[tuple[str, np.ndarray]]  # (child panel, flat point), matching parent_notches in order
+    gap_in: float  # largest distance from the child's opening to the parent's surface
+
+
+class PartSurface:
+    """A part's 3D panels, for projecting points onto them and reading the flat position."""
+
+    def __init__(self, ps: PanelSet, part_id: str):
+        self.panels = [p for p in ps.panels.values() if p.part == part_id]
+        if self.panels[0].name.endswith(("/front", "/back")):
+            self.panels = self.panels[:1]  # front and back lie on top of each other; marks go on the front
+        vstart = np.cumsum([0] + [len(p.vertices) for p in self.panels])
+        self.face_start = np.cumsum([0] + [len(p.faces) for p in self.panels])
+        self.mesh = trimesh.Trimesh(np.vstack([p.vertices for p in self.panels]),
+                                    np.vstack([p.faces + s for p, s in zip(self.panels, vstart[:-1])]),
+                                    process=False)
+
+    def flat(self, points: np.ndarray) -> tuple[list[tuple[str, np.ndarray]], np.ndarray]:
+        closest, distance, tri = trimesh.proximity.closest_point(self.mesh, points)
+        out = []
+        for c, t in zip(closest, tri):
+            k = int(np.searchsorted(self.face_start, t, side="right") - 1)
+            p = self.panels[k]
+            corners = p.faces[t - self.face_start[k]]
+            w = trimesh.triangles.points_to_barycentric(p.vertices[corners][None], c[None])[0]
+            out.append((p.name, w @ p.uv[corners]))
+        return out, distance
+
+
+def _opening(ps: PanelSet, part, child: Placed, parent: Placed) -> tuple[np.ndarray, bool]:
+    """Points along the child's opening in its own frame, and whether the opening is a closed ring."""
+    if isinstance(part, RoundedSolid):
+        # the line where the part's surface enters its parent: walk down each meridian
+        theta = np.linspace(0.0, np.pi, MERIDIAN_SAMPLES)
+        phi = np.linspace(0.0, 2 * np.pi, SAMPLES, endpoint=False)
+        local = deform(unit_direction(theta[:, None], phi[None, :]), part, child.scale_in)
+        surface = closed_surface([p for p in ps.panels.values() if p.part == parent.part_id])
+        in_parent = (local.reshape(-1, 3) @ child.rotation.T + child.translation - parent.translation) @ parent.rotation
+        depth = trimesh.proximity.signed_distance(surface, in_parent).reshape(len(theta), len(phi))
+        ring = []
+        for i in range(len(phi)):
+            # first change between outside and inside, whichever end of the part is in the parent
+            crossing = np.nonzero(np.sign(depth[:, i]) != np.sign(depth[0, i]))[0]
+            if len(crossing) == 0:
+                raise ValueError(f"part {part.id!r} does not meet its parent {parent.part_id!r}")
+            j = int(crossing[0])
+            a, b = depth[j - 1, i], depth[j, i]
+            t = a / (a - b)
+            ring.append(local[j - 1, i] + t * (local[j, i] - local[j - 1, i]))
+        return np.array(ring), True
+    panels = [p for p in ps.panels.values() if p.part == part.id]
+    runs = [(p, e.vertices) for p in panels for e in p.edges if e.kind == "attachment"]
+    if part.kind == "flat_part":
+        a, b = runs[0][0].vertices[runs[0][1][0]], runs[0][0].vertices[runs[0][1][-1]]
+        return a + np.linspace(0, 1, 9)[:, None] * (b - a), False
+    pts = []
+    for p, chain in runs:
+        for v in chain:
+            if not pts or not np.allclose(p.vertices[v], pts[-1]):
+                pts.append(p.vertices[v])
+    if np.allclose(pts[0], pts[-1]):
+        pts.pop()
+    return np.array(pts), True
+
+
+def _point_at(points: np.ndarray, ring: bool, f: float) -> np.ndarray:
+    path = np.vstack([points, points[:1]]) if ring else points
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(path, axis=0), axis=1))]
+    return np.array([np.interp(f * s[-1], s, path[:, k]) for k in range(3)])
+
+
+def _dense(points: np.ndarray, ring: bool) -> np.ndarray:
+    """The opening resampled every SPACING_IN or so, so the bit of line lost where it crosses
+    from one piece to the next is negligible."""
+    path = np.vstack([points, points[:1]]) if ring else points
+    length = float(np.linalg.norm(np.diff(path, axis=0), axis=1).sum())
+    count = max(len(path), int(np.ceil(length / SPACING_IN)) + 1)
+    return np.array([_point_at(points, ring, f) for f in np.linspace(0.0, 1.0, count)])
+
+
+def _runs(mapped: list[tuple[str, np.ndarray]]) -> list[tuple[str, np.ndarray]]:
+    """Split a mapped polyline into one run per panel it crosses."""
+    runs, name, run = [], None, []
+    for panel, uv in mapped:
+        if panel != name and run:
+            runs.append((name, np.array(run)))
+            run = []
+        name = panel
+        run.append(uv)
+    if run:
+        runs.append((name, np.array(run)))
+    return runs
+
+
+def attachment_marks(kit: Kit, ps: PanelSet, placed: dict[str, Placed]) -> list[AttachmentMark]:
+    by_id = {p.id: p for p in kit.parts}
+    marks = []
+    for name, child in placed.items():
+        if child.parent is None or child.kind == "surface_feature":
+            continue
+        parent = placed[child.parent]
+        parent_surface, child_surface = PartSurface(ps, parent.part_id), PartSurface(ps, child.part_id)
+        points, ring = _opening(ps, by_id[child.part_id], child, parent)
+
+        def to_parent(p):
+            return (p @ child.rotation.T + child.translation - parent.translation) @ parent.rotation
+
+        path = _dense(points, ring)
+        mapped, distance = parent_surface.flat(to_parent(path))
+        on_child, _ = child_surface.flat(path)
+        notches = np.array([_point_at(points, ring, f) for f in (RING_NOTCHES if ring else LINE_NOTCHES)])
+        parent_notches, _ = parent_surface.flat(to_parent(notches))
+        child_notches, _ = child_surface.flat(notches)
+        marks.append(AttachmentMark(name, child.parent, _runs(mapped), _runs(on_child), parent_notches,
+                                    child_notches, float(distance.max())))
+    return marks
+```
+
+**Replace `engine/plush/finishing.py`**
+
+```python
+"""Finished pattern pieces: stitch and cut lines, label, arrows, notches, stuffing gaps, placement marks."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+import igl
+import numpy as np
+from shapely.geometry import Polygon
+from shapely.geometry.polygon import orient
+
+from plush.allowance import cut_outline
+from plush.attachments import AttachmentMark, attachment_marks
+from plush.features import applique_templates, feature_marks
+from plush.geometry.assemble import Placed
+from plush.panels import Panel, PanelSet
+from plush.parts import Kit
+from plush.seams import notches, point_at_fraction, side_points
+from plush.settings import Settings
+
+ARROW = 0.4  # arrow length as a fraction of the piece's height
+
+
+@dataclass
+class Piece:
+    name: str  # panel name, e.g. "head/gore3"
+    part: str  # part id
+    label: str
+    colour: str
+    cut_count: int
+    mirrored: int
+    stitch: np.ndarray  # (k, 2) closed stitch line, counter-clockwise, inches
+    cut: np.ndarray  # (m, 2) closed cut line
+    grain: np.ndarray  # (2, 2) arrow tail and head
+    nap: np.ndarray | None  # (2, 2) direction the fur runs, if the piece has one
+    notches: list[tuple[np.ndarray, str]] = field(default_factory=list)  # point, label
+    gaps: list[np.ndarray] = field(default_factory=list)  # stretches of stitch line left open
+    marks: list[tuple[np.ndarray, str]] = field(default_factory=list)  # placement lines, label
+
+
+@dataclass
+class Pattern:
+    pieces: dict[str, Piece]
+    seam_letters: dict[str, str]
+    attachments: list[AttachmentMark]
+    panels: PanelSet
+    features: list[tuple[str, str, str, np.ndarray]] = field(default_factory=list)  # see feature_marks
+
+
+def seam_letter(i: int) -> str:
+    """A, B, ... Z, AA, AB, ..."""
+    letters = ""
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        letters = chr(65 + r) + letters
+    return letters
+
+
+def _role(panel: Panel, siblings: list[Panel]) -> str:
+    kind = panel.name.split("/")[1]
+    match = re.fullmatch(r"(gore|strip)(\d+)", kind)
+    if match:
+        total = sum(1 for p in siblings if p.name.split("/")[1].startswith(match.group(1)))
+        return f"{match.group(1)} {match.group(2)} of {total}"
+    return kind
+
+
+def _label(panel: Panel, part_name: str, siblings: list[Panel]) -> str:
+    text = f"{part_name} — {_role(panel, siblings)} — cut {panel.cut}"
+    return text + (f" ({panel.mirrored} mirrored)" if panel.mirrored else "")
+
+
+def _arrows(panel: Panel, stitch: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
+    """Grain runs along the piece (+y, as the piece stands); fur runs down the toy."""
+    centre = np.array([stitch[:, 0].mean(), (stitch[:, 1].min() + stitch[:, 1].max()) / 2])
+    half = ARROW * np.ptp(stitch[:, 1]) / 2
+    up = np.array([centre - [0, half], centre + [0, half]])
+    kind = panel.name.split("/")[1]
+    if kind.startswith("gore"):
+        return up, up[::-1]  # top of the toy at the top of the gore: fur runs down
+    if kind.startswith("strip") or kind in ("front", "back"):
+        return up, up  # fur runs from where the part is sewn on toward its tip
+    return up, None  # bases and soles
+
+
+def _stretch_between(points: np.ndarray, start: float, end: float) -> np.ndarray:
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))] / max(
+        np.linalg.norm(np.diff(points, axis=0), axis=1).sum(), 1e-12)
+    inner = points[(s > start) & (s < end)]
+    return np.vstack([point_at_fraction(points, [start]), inner, point_at_fraction(points, [end])])
+
+
+def finish(kit: Kit, placed: dict[str, Placed], ps: PanelSet, settings: Settings) -> Pattern:
+    names = {p.id: p.name for p in kit.parts}
+    letters = {sid: seam_letter(i) for i, sid in enumerate(sorted(ps.seams))}
+    pieces: dict[str, Piece] = {}
+    for panel in ps.panels.values():
+        siblings = [p for p in ps.panels.values() if p.part == panel.part]
+        loop = igl.boundary_loop(panel.faces)
+        stitch = np.asarray(orient(Polygon(panel.uv[loop]), sign=1.0).exterior.coords)[:-1]
+        grain, nap = _arrows(panel, stitch)
+        pieces[panel.name] = Piece(panel.name, panel.part, _label(panel, names[panel.part], siblings),
+                                   panel.colour, panel.cut, panel.mirrored, stitch,
+                                   cut_outline(stitch, settings.seam_allowance_in), grain, nap)
+
+    for sid, seam in ps.seams.items():
+        for side, marks in zip(seam.sides, notches(ps, seam, settings.notch_spacing_in)):
+            pieces[side[0]].notches += [(m, letters[sid]) for m in marks]
+        if seam.gap is not None:
+            for side in seam.sides:
+                pieces[side[0]].gaps.append(_stretch_between(side_points(ps, side), *seam.gap))
+
+    marks = attachment_marks(kit, ps, placed)
+    for m in marks:
+        child = placed[m.child]
+        side = " (left)" if m.child.endswith("_left") else " (right)" if m.child.endswith("_right") else ""
+        label = f"{names[child.part_id]}{side}"
+        for panel_name, line in m.outline:
+            pieces[panel_name].marks.append((line, label))
+        for panel_name, point in m.parent_notches:
+            pieces[panel_name].notches.append((point, label))
+        if not m.child.endswith("_right"):  # a pair's pieces are cut twice from one pattern
+            on = names[placed[m.parent].part_id]
+            for panel_name, line in m.child_outline:
+                pieces[panel_name].marks.append((line, f"sew to {on}"))
+            for panel_name, point in m.child_notches:
+                pieces[panel_name].notches.append((point, f"to {on}"))
+
+    features = feature_marks(kit, ps, placed)
+    for _, panel_name, label, line in features:
+        pieces[panel_name].marks.append((line, label))
+    for part_id, label, outline, cut, mirrored in applique_templates(kit, placed):
+        part = next(p for p in kit.parts if p.id == part_id)
+        centre = outline.mean(axis=0)
+        half = 0.4 * np.ptp(outline[:, 1]) / 2
+        pieces[f"{part_id}/template"] = Piece(f"{part_id}/template", part_id, label, part.colour, cut, mirrored,
+                                               outline, outline.copy(),  # felt: cut on the line, no allowance
+                                               np.array([centre - [0, half], centre + [0, half]]), None)
+    return Pattern(pieces, letters, marks, ps, features)
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `80 passed`.
+
+**Step 5:** Commit: `git add engine/plush/features.py engine/plush/attachments.py engine/plush/finishing.py engine/tests/conftest.py engine/tests/test_checks.py engine/tests/test_features.py && git commit -m "feat(engine): surface-feature marks and felt templates; shared test bear"`
+
+### Task 6.2: Cutting layout
+
+**Files:** create `engine/plush/layout.py`; test `engine/tests/test_layout.py`.
+
+**Step 1: Write the failing test file `engine/tests/test_layout.py`**
+
+```python
+import itertools
+
+import numpy as np
+import pytest
+from shapely.geometry import Polygon
+
+from plush.layout import cutting_layout
+from plush.settings import load_settings
+
+SETTINGS = load_settings()
+
+
+@pytest.fixture(scope="module")
+def fabric(bear_stuffed):
+    _, _, pattern, _ = bear_stuffed
+    return pattern, cutting_layout(pattern, SETTINGS)
+
+
+def test_every_copy_fits_across_the_fabric(fabric):
+    _, layouts = fabric
+    for f in layouts:
+        for p in f.placements:
+            assert p.outline[:, 0].min() >= -1e-9 and p.outline[:, 0].max() <= f.width_in + 1e-9, p.piece
+
+
+def test_no_copies_overlap(fabric):
+    _, layouts = fabric
+    for f in layouts:
+        shapes = [Polygon(p.outline) for p in f.placements]
+        for a, b in itertools.combinations(shapes, 2):
+            assert a.intersection(b).area < 1e-9
+
+
+def test_pieces_are_never_rotated_only_mirrored(fabric):
+    pattern, layouts = fabric
+    for f in layouts:
+        for p in f.placements:
+            cut = pattern.pieces[p.piece].cut * ([-1, 1] if p.mirrored else [1, 1])
+            assert np.abs((p.outline - p.outline.min(axis=0)) - (cut - cut.min(axis=0))).max() < 1e-9, p.piece
+
+
+def test_every_copy_is_laid_out_and_lengths_are_reported(fabric):
+    pattern, layouts = fabric
+    assert {f.colour for f in layouts} == {p.colour for p in pattern.pieces.values()}
+    copies = sum(len(f.placements) for f in layouts)
+    assert copies == sum(p.cut_count for p in pattern.pieces.values())
+    for f in layouts:
+        assert f.length_in == pytest.approx(max(p.outline[:, 1].max() for p in f.placements))
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.layout'`.
+
+**Step 3: Create `engine/plush/layout.py`**
+
+```python
+"""Cutting layout: every copy of every piece laid on its fabric, grain along the fabric's length.
+
+Pieces are never rotated (their grain arrow runs along the fabric), mirrored copies are
+flipped, and pieces are packed in rows across the fabric width.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from plush.finishing import Pattern
+from plush.settings import Settings
+
+SPACING_IN = 0.125  # gap between neighbouring cut lines
+
+
+class LayoutError(ValueError):
+    """A piece is wider than the fabric."""
+
+
+@dataclass
+class Placement:
+    piece: str
+    copy: int  # 1-based
+    mirrored: bool
+    outline: np.ndarray  # cut line on the fabric, inches; x across the width, y along the length
+
+
+@dataclass
+class FabricLayout:
+    colour: str
+    width_in: float
+    length_in: float
+    placements: list[Placement]
+
+
+def cutting_layout(pattern: Pattern, settings: Settings) -> list[FabricLayout]:
+    by_colour: dict[str, list[tuple[str, int, bool, np.ndarray]]] = {}
+    for piece in pattern.pieces.values():
+        for copy in range(1, piece.cut_count + 1):
+            mirrored = copy > piece.cut_count - piece.mirrored
+            outline = piece.cut * ([-1, 1] if mirrored else [1, 1])
+            by_colour.setdefault(piece.colour, []).append((piece.name, copy, mirrored, outline))
+
+    width = settings.fabric_width_in
+    layouts = []
+    for colour, copies in by_colour.items():
+        copies.sort(key=lambda c: -np.ptp(c[3][:, 1]))  # tallest first
+        x = y = row_height = 0.0
+        placements = []
+        for name, copy, mirrored, outline in copies:
+            w, h = np.ptp(outline, axis=0)
+            if w > width:
+                raise LayoutError(f"piece {name!r} is {w:.2f} in wide; the fabric is {width} in")
+            if x > 0 and x + w > width:  # next row
+                x, y, row_height = 0.0, y + row_height + SPACING_IN, 0.0
+            placed = outline - outline.min(axis=0) + [x, y]
+            placements.append(Placement(name, copy, mirrored, placed))
+            x += w + SPACING_IN
+            row_height = max(row_height, h)
+        layouts.append(FabricLayout(colour, width, y + row_height, placements))
+    return layouts
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `84 passed`.
+
+**Step 5:** Commit: `git add engine/plush/layout.py engine/tests/test_layout.py && git commit -m "feat(engine): cutting layout on the fabric width"`
+
+### Task 6.3: Directions and check 6
+
+**Files:** create `engine/plush/directions.py`; test `engine/tests/test_directions.py`.
+
+**Step 1: Write the failing test file `engine/tests/test_directions.py`**
+
+```python
+import pytest
+
+from plush.directions import check_directions, directions
+
+
+@pytest.fixture(scope="module")
+def steps(bear_stuffed):
+    kit, placed, pattern, _ = bear_stuffed
+    return pattern, directions(kit, placed, pattern)
+
+
+def test_every_piece_is_cut_in_exactly_one_step(steps):
+    pattern, s = steps
+    cut = [name for step in s if step.kind == "cut" for name in step.pieces]
+    assert sorted(cut) == sorted(pattern.pieces)
+    assert check_directions(pattern, s).passed
+
+
+def test_every_seam_and_attachment_appears_once(steps):
+    pattern, s = steps
+    sewn = [sid for step in s if step.kind == "sew" for sid in step.seams]
+    assert sorted(sewn) == sorted(pattern.panels.seams)
+    attached = [c for step in s if step.kind == "attach" for c in step.attachments]
+    assert sorted(attached) == sorted(m.child for m in pattern.attachments)
+
+
+def test_a_missing_step_fails_check_6_and_names_the_seam(steps):
+    pattern, s = steps
+    dropped = next(step for step in s if step.kind == "sew")
+    result = check_directions(pattern, [step for step in s if step is not dropped])
+    assert not result.passed and any(dropped.seams[0] in w for w in result.where)
+
+
+def test_features_come_first_and_the_gap_seam_last(steps):
+    pattern, s = steps
+    for f in (step for step in s if step.kind == "feature"):
+        assert all(f.number < x.number for x in s if x.kind == "sew" and x.part == f.part)
+    for part in ("body", "head"):
+        sewn = [step.seams[0] for step in s if step.kind == "sew" and step.part == part]
+        assert sewn[-1] == f"{part}:m0" and pattern.panels.seams[sewn[-1]].gap is not None
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.directions'`.
+
+**Step 3: Create `engine/plush/directions.py`**
+
+```python
+"""Step-by-step directions, written from the actual pieces, seams and attachments.
+
+The order is fixed: cut, mark, add surface features while pieces are flat, sew each part
+(closed parts leave their back-seam gap open), turn and stuff, close gaps, then attach
+parts to each other by hand. Check 6 confirms every piece, seam and attachment appears
+in exactly one step of the right kind, and that features come before their part is sewn.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from plush.checks import CheckResult
+from plush.finishing import Pattern
+from plush.geometry.assemble import Placed
+from plush.parts import FeatureMethod, Kit
+from plush.seams import side_points
+
+
+@dataclass
+class Step:
+    number: int
+    kind: str  # "cut", "mark", "feature", "sew", "stuff", "close", "attach"
+    text: str
+    part: str | None = None  # the part this step works on
+    pieces: list[str] = field(default_factory=list)  # pieces cut in a "cut" step
+    seams: list[str] = field(default_factory=list)  # seams sewn in a "sew" step
+    attachments: list[str] = field(default_factory=list)  # placed child names in an "attach" step
+    highlight: list[tuple[str, np.ndarray]] = field(default_factory=list)  # (piece, flat line) to draw in red
+
+
+def _sewing_order(seam_id: str, has_gap: bool) -> tuple:
+    """Panels joined to each other first, then bases and soles, and the seam with the stuffing gap last."""
+    kind = seam_id.split(":")[1]
+    stem = kind.rstrip("0123456789")
+    number = int(kind[len(stem):] or 0)
+    return (has_gap, stem in ("b", "sole"), stem, number)
+
+
+def _labels(pattern: Pattern, names: list[str]) -> str:
+    return "; ".join(pattern.pieces[n].label for n in names)
+
+
+def directions(kit: Kit, placed: dict[str, Placed], pattern: Pattern) -> list[Step]:
+    steps: list[Step] = []
+    names = {p.id: p.name for p in kit.parts}
+
+    def add(kind: str, text: str, **kw) -> None:
+        steps.append(Step(len(steps) + 1, kind, text, **kw))
+
+    by_colour: dict[str, list[str]] = {}
+    for piece in pattern.pieces.values():
+        by_colour.setdefault(piece.colour, []).append(piece.name)
+    for colour, pieces in by_colour.items():
+        add("cut", f"From the fabric in colour {colour}, cut: {_labels(pattern, pieces)}. "
+                   "Cut on the solid line. Copies marked 'mirrored' are cut with the pattern turned over.",
+            pieces=pieces)
+    add("mark", "Transfer every notch, the stuffing gaps and all placement marks to the wrong side of each piece.")
+
+    for name, panel, label, line in pattern.features:
+        feature = next(p for p in kit.parts if p.id == placed[name].part_id)
+        parent_part = placed[placed[name].parent].part_id
+        where = pattern.pieces[panel].label
+        if feature.method is FeatureMethod.SAFETY_EYE:
+            text = f"{label}: push the safety eye through a small hole at the centre of the marked circle on {where}, then fix the washer on the wrong side."
+        elif feature.method is FeatureMethod.EMBROIDERY:
+            text = f"{label}: embroider inside the marked outline on {where}."
+        else:
+            text = f"{label}: stitch the felt template inside the marked outline on {where}."
+        add("feature", text, part=parent_part, highlight=[(panel, line)])
+
+    parts_in_order = list(dict.fromkeys(p.part for p in pattern.panels.panels.values()))
+    for part in parts_in_order:
+        seams = sorted((sid for sid, s in pattern.panels.seams.items() if s.part == part),
+                       key=lambda sid: _sewing_order(sid, pattern.panels.seams[sid].gap is not None))
+        for sid in seams:
+            seam = pattern.panels.seams[sid]
+            letter = pattern.seam_letters[sid]
+            (a, _), (b, _) = seam.sides
+            if a == b:
+                text = f"Seam {letter}: fold {pattern.pieces[a].label} right sides together and sew seam {letter}, matching the {letter} notches."
+            else:
+                text = (f"Seam {letter}: place {pattern.pieces[a].label} and {pattern.pieces[b].label} right sides "
+                        f"together, match the {letter} notches and sew along the stitch line.")
+            if seam.gap is not None:
+                text += " Leave the marked gap open for turning and stuffing."
+            if pattern.pieces[a].mirrored:
+                text += f" Do the same for the second {names[part]}."
+            add("sew", text, part=part, seams=[sid],
+                highlight=[(side[0], side_points(pattern.panels, side)) for side in seam.sides])
+
+    for part in parts_in_order:
+        kind = next(p.kind for p in kit.parts if p.id == part)
+        each = "each " if any(p.mirrored for p in pattern.pieces.values() if p.part == part) else ""
+        if kind == "rounded_solid":
+            add("stuff", f"Turn {names[part]} right side out through the gap and stuff it firmly.", part=part)
+            add("close", f"Close the gap in {names[part]} with a ladder stitch.", part=part)
+        elif kind == "limb":
+            add("stuff", f"Turn {each}{names[part]} right side out through its open end and stuff it firmly, "
+                         "leaving the last half inch unstuffed.", part=part)
+        else:
+            amount = next(p.puffiness for p in kit.parts if p.id == part)
+            how = "stuff it lightly" if amount > 0 else "do not stuff it"
+            add("stuff", f"Turn {each}{names[part]} right side out through its open base; {how}.", part=part)
+
+    for m in pattern.attachments:
+        child = placed[m.child]
+        side = " (left)" if m.child.endswith("_left") else " (right)" if m.child.endswith("_right") else ""
+        child_name, parent_name = names[child.part_id] + side, names[placed[m.parent].part_id]
+        if child.kind == "rounded_solid":
+            text = (f"Place {child_name} on {parent_name}, matching the notches on both, and ladder-stitch around "
+                    "the marked lines.")
+        else:
+            text = (f"Turn under the open edge of {child_name}, place it on the marked line on {parent_name} with the "
+                    "notches matching, and ladder-stitch it on.")
+        add("attach", text, part=child.part_id, attachments=[m.child], highlight=list(m.outline))
+    return steps
+
+
+def check_directions(pattern: Pattern, steps: list[Step]) -> CheckResult:
+    """Check 6: every piece cut once, every seam sewn once, every attachment made once, features first."""
+    where = []
+
+    def count(items, kind, attr):
+        seen: dict[str, int] = {}
+        for s in steps:
+            if s.kind == kind:
+                for x in getattr(s, attr):
+                    seen[x] = seen.get(x, 0) + 1
+        for x in items:
+            if seen.get(x, 0) != 1:
+                where.append(f"{x}: in {seen.get(x, 0)} {kind} steps (should be 1)")
+
+    count(pattern.pieces, "cut", "pieces")
+    count(pattern.panels.seams, "sew", "seams")
+    count([m.child for m in pattern.attachments], "attach", "attachments")
+    for f in (s for s in steps if s.kind == "feature"):
+        first_sew = min((s.number for s in steps if s.kind == "sew" and s.part == f.part), default=None)
+        if first_sew is not None and f.number > first_sew:
+            where.append(f"step {f.number}: feature comes after {f.part} is sewn (step {first_sew})")
+    return CheckResult(6, "Directions complete", not where,
+                       f"{len(steps)} steps" if not where else f"{len(where)} problem(s)",
+                       "each piece, seam and attachment exactly once; features first", where)
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `88 passed`.
+
+**Step 5:** Commit: `git add engine/plush/directions.py engine/tests/test_directions.py && git commit -m "feat(engine): step-by-step directions and check 6"`
+
+### Task 6.4: Materials
+
+**Files:**
+- Modify (replace whole file): `engine/plush/inflate.py`, so `Inflated` keeps its faces
+- Create: `engine/plush/materials.py`
+- Test: `engine/tests/test_materials.py`
+
+**Step 1: Write the failing test file `engine/tests/test_materials.py`**
+
+```python
+import pytest
+import trimesh
+
+from plush.materials import closed_volume
+from plush.panels import gore_panels
+from plush.parts import RoundedSolid
+from plush.settings import load_settings
+from plush.stuffing import stuff
+
+SETTINGS = load_settings()
+
+
+def test_stuffed_volume_is_the_volume_of_the_inflated_shape():
+    ball = RoundedSolid(kind="rounded_solid", id="ball", name="Ball", colour="#000000",
+                        width=0.5, height=0.5, depth=0.5)
+    result = stuff(gore_panels(ball, 12.0, 8), SETTINGS.stuffed_mean_deviation, SETTINGS.stuffed_max_deviation)
+    inflated = trimesh.Trimesh(result.inflated.positions, result.inflated.faces, process=False)
+    assert inflated.is_watertight
+    assert closed_volume(result.inflated.positions, result.inflated.faces) == pytest.approx(inflated.volume, rel=1e-9)
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.materials'`.
+
+**Step 3: Replace `engine/plush/inflate.py`**
+
+```python
+"""Stuffing simulation: sewn panels inflated by internal pressure.
+
+Fabric is modelled as a tension-field membrane (as in Skouras et al.,
+"Designing Inflatable Structures", 2014): each triangle resists stretching
+beyond its flat pattern shape in any direction, but wrinkles freely when
+compressed. Inflation minimises stretch energy minus pressure x volume.
+Validated against the Mylar balloon (two discs sewn at the rim).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+import trimesh
+from scipy.optimize import minimize
+
+from plush.panels import Panel, weld
+
+STIFFNESS = (1e2, 1e3, 1e4)  # fabric stiffness per unit pressure, relative to part size; raised in stages
+
+
+@dataclass
+class Membrane:
+    positions: np.ndarray  # (n, 3) start positions: the target surface
+    faces: np.ndarray  # (t, 3) welded across seams
+    rest_inverse: np.ndarray  # (t, 2, 2) inverse of each triangle's flat edge matrix
+    rest_area: np.ndarray  # (t,)
+    fixed: np.ndarray  # (n,) bool: vertices held in place (where the part is sewn on)
+    index: np.ndarray  # membrane vertex for each panel vertex, panels taken in order
+
+
+@dataclass
+class Inflated:
+    positions: np.ndarray
+    iterations: int
+    max_stretch: float  # largest principal stretch beyond the flat pattern, as a fraction
+    faces: np.ndarray | None = None  # the welded faces the positions belong to
+
+
+def membrane_from_panels(panels: list[Panel]) -> Membrane:
+    """Weld a part's panels along their seams. Attachment edges are held fixed."""
+    V, F, welded = weld(panels)
+    starts = np.cumsum([0] + [len(p.vertices) for p in panels])
+    fixed = np.zeros(len(V), bool)
+    for p, start in zip(panels, starts):
+        for e in p.edges:
+            if e.kind == "attachment":
+                fixed[welded[e.vertices + start]] = True
+    raw = np.vstack([p.faces + start for p, start in zip(panels, starts)])
+    U = np.vstack([p.uv for p in panels])
+    u0, u1, u2 = U[raw[:, 0]], U[raw[:, 1]], U[raw[:, 2]]
+    rest = np.stack([u1 - u0, u2 - u0], axis=2)
+    return Membrane(V, F, np.linalg.inv(rest), np.abs(np.linalg.det(rest)) / 2, fixed, welded)
+
+
+def _stretch_energy(X, m: Membrane, k: float):
+    """Energy and per-triangle gradient (t, 3, 2) of stretch beyond the flat shape."""
+    F = m.faces
+    x0, x1, x2 = X[F[:, 0]], X[F[:, 1]], X[F[:, 2]]
+    Fd = np.stack([x1 - x0, x2 - x0], axis=2) @ m.rest_inverse  # deformation gradient (t, 3, 2)
+    C = np.transpose(Fd, (0, 2, 1)) @ Fd
+    a, b, d = C[:, 0, 0], C[:, 0, 1], C[:, 1, 1]
+    centre, radius = (a + d) / 2, np.sqrt(((a - d) / 2) ** 2 + b**2)
+    stretch = np.sqrt(np.stack([centre + radius, np.maximum(centre - radius, 0.0)], axis=1))
+    over = np.maximum(stretch - 1.0, 0.0)
+    energy = float(np.sum(m.rest_area * k * (over**2).sum(axis=1)))
+
+    v1 = np.stack([b, stretch[:, 0] ** 2 - a], axis=1)
+    other = np.stack([stretch[:, 0] ** 2 - d, b], axis=1)
+    small = np.linalg.norm(v1, axis=1) < 1e-14
+    v1[small] = other[small]
+    norm = np.linalg.norm(v1, axis=1)
+    v1[norm < 1e-14] = [1.0, 0.0]
+    v1 /= np.linalg.norm(v1, axis=1)[:, None]
+    v2 = np.stack([-v1[:, 1], v1[:, 0]], axis=1)
+    grad = np.zeros_like(Fd)
+    for i, v in ((0, v1), (1, v2)):
+        coef = np.where(stretch[:, i] > 1e-14, 2 * m.rest_area * k * over[:, i] / np.maximum(stretch[:, i], 1e-14), 0.0)
+        Fv = np.einsum("tij,tj->ti", Fd, v)
+        grad += coef[:, None, None] * np.einsum("ti,tj->tij", Fv, v)
+    return energy, grad @ np.transpose(m.rest_inverse, (0, 2, 1)), float(over.max())
+
+
+def _scatter(F: np.ndarray, per_corner: list[np.ndarray], n: int) -> np.ndarray:
+    g = np.zeros((n, 3))
+    for corner, values in enumerate(per_corner):
+        for axis in range(3):
+            g[:, axis] += np.bincount(F[:, corner], weights=values[:, axis], minlength=n)
+    return g
+
+
+def inflate(m: Membrane, stiffness: tuple[float, ...] = STIFFNESS) -> Inflated:
+    X = m.positions.copy()
+    free = ~m.fixed
+    size = float(np.ptp(X, axis=0).max())
+    iterations, n, F = 0, len(X), m.faces
+    for K in stiffness:
+        k = K / size
+
+        def objective(z):
+            Xc = X.copy()
+            Xc[free] = z.reshape(-1, 3)
+            energy, dDs, _ = _stretch_energy(Xc, m, k)
+            a, b, c = Xc[F[:, 0]], Xc[F[:, 1]], Xc[F[:, 2]]
+            volume = np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6
+            g = _scatter(F, [-dDs[:, :, 0] - dDs[:, :, 1] - np.cross(b, c) / 6,
+                             dDs[:, :, 0] - np.cross(c, a) / 6,
+                             dDs[:, :, 1] - np.cross(a, b) / 6], n)
+            return energy - volume, g[free].ravel()
+
+        result = minimize(objective, X[free].ravel(), jac=True, method="L-BFGS-B",
+                          options={"maxiter": 30000, "maxcor": 30, "gtol": 1e-10, "ftol": 1e-15})
+        X[free] = result.x.reshape(-1, 3)
+        iterations += int(result.nit)
+    _, _, worst = _stretch_energy(X, m, 1.0)
+    return Inflated(X, iterations, worst, m.faces)
+
+
+def deviation(inflated: np.ndarray, target: trimesh.Trimesh) -> np.ndarray:
+    """Signed distance of each inflated vertex from the target surface (+ = outside)."""
+    closest, distance, tri = trimesh.proximity.closest_point(target, inflated)
+    side = np.sign(np.einsum("ij,ij->i", inflated - closest, target.face_normals[tri]))
+    return side * distance
+```
+
+**Create `engine/plush/materials.py`**
+
+```python
+"""Materials list: fabric per colour (from the cutting layout), stuffed volume, safety eyes, thread."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import igl
+import numpy as np
+
+from plush.geometry.assemble import Placed
+from plush.layout import FabricLayout
+from plush.parts import FeatureMethod, Kit
+from plush.stuffing import StuffingResult
+
+
+@dataclass
+class Materials:
+    fabric: list[tuple[str, float, float]]  # (colour, width in, length in)
+    stuffed_volume_cuin: float
+    safety_eyes: list[tuple[str, float, int]]  # (feature name, diameter in, count)
+    thread: str
+
+
+def closed_volume(positions: np.ndarray, faces: np.ndarray) -> float:
+    """Volume enclosed by a surface; an open end (a limb's sewn-on opening) is closed by a flat cap."""
+    loops = igl.boundary_loop(faces)
+    caps = []
+    if len(loops):
+        centre_index = len(positions)
+        positions = np.vstack([positions, positions[loops].mean(axis=0)])
+        caps = [[loops[i], centre_index, loops[(i + 1) % len(loops)]] for i in range(len(loops))]
+    F = np.vstack([faces, caps]) if caps else faces
+    a, b, c = positions[F[:, 0]], positions[F[:, 1]], positions[F[:, 2]]
+    return abs(float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6))
+
+
+def materials(kit: Kit, placed: dict[str, Placed], layouts: list[FabricLayout],
+              stuffing: dict[str, StuffingResult | None]) -> Materials:
+    copies = {p.id: (2 if p.pair else 1) for p in kit.parts}
+    volume = sum(closed_volume(r.inflated.positions, r.inflated.faces) * copies[part]
+                 for part, r in stuffing.items() if r is not None)
+    eyes = []
+    for p in kit.parts:
+        if p.kind == "surface_feature" and p.method is FeatureMethod.SAFETY_EYE:
+            scale = next(pl.scale_in for pl in placed.values() if pl.part_id == p.id)
+            eyes.append((p.name, p.width * scale, copies[p.id]))
+    return Materials([(f.colour, f.width_in, f.length_in) for f in layouts], volume, eyes,
+                     "Polyester thread to match each fabric colour")
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `89 passed`.
+
+**Step 5:** Commit: `git add engine/plush/inflate.py engine/plush/materials.py engine/tests/test_materials.py && git commit -m "feat(engine): materials list with stuffed volume"`
+
+### Task 6.5: The PDF and check 2
+
+**Files:** create `engine/plush/pdf.py`; test `engine/tests/test_pdf.py`.
+
+**Step 1: Write the failing test file `engine/tests/test_pdf.py`**
+
+```python
+import dataclasses
+
+import pytest
+from pypdf import PdfReader
+
+from plush.directions import directions
+from plush.layout import cutting_layout
+from plush.materials import materials
+from plush.pdf import PAGE_H, PAGE_W, _read_paths, check_true_scale, sheet_layout, write_pdf
+from plush.settings import load_settings
+
+SETTINGS = load_settings()
+
+
+@pytest.fixture(scope="module")
+def printed(bear_stuffed, tmp_path_factory):
+    kit, placed, pattern, stuffing = bear_stuffed
+    fabric = cutting_layout(pattern, SETTINGS)
+    steps = directions(kit, placed, pattern)
+    mats = materials(kit, placed, fabric, stuffing)
+    sheet = sheet_layout(pattern, SETTINGS)
+    folder = tmp_path_factory.mktemp("pdf")
+    args = (pattern, sheet, fabric, steps, mats)
+    write_pdf(str(folder / "true.pdf"), *args, SETTINGS, "Rule-check bear")
+    write_pdf(str(folder / "shrunk.pdf"), *args, SETTINGS, "Rule-check bear", scale=0.97)
+    unapproved = dataclasses.replace(SETTINGS, approved_by_owner=False)
+    write_pdf(str(folder / "unapproved.pdf"), *args, unapproved, "Rule-check bear")
+    return pattern, sheet, folder
+
+
+def test_test_square_is_exactly_two_inches(printed):
+    _, _, folder = printed
+    _, rects = _read_paths(PdfReader(folder / "true.pdf").pages[0])
+    assert any(abs(w - 144) < 1e-6 and abs(h - 144) < 1e-6 for w, h in rects)
+
+
+def test_check_2_finds_every_piece_at_true_scale(printed):
+    pattern, sheet, folder = printed
+    result = check_true_scale(str(folder / "true.pdf"), pattern, sheet, SETTINGS)
+    assert result.passed, result.where
+
+
+def test_every_page_is_us_letter(printed):
+    _, _, folder = printed
+    for page in PdfReader(folder / "true.pdf").pages:
+        assert (float(page.mediabox.width), float(page.mediabox.height)) == (PAGE_W, PAGE_H)
+
+
+def test_page_map_lists_every_pattern_page(printed):
+    _, sheet, folder = printed
+    text = PdfReader(folder / "true.pdf").pages[0].extract_text()
+    for r, c, _ in sheet.tiles:
+        assert f"{r + 1}.{c + 1}" in text
+
+
+def test_check_2_fails_for_a_shrunk_copy(printed):
+    pattern, sheet, folder = printed
+    result = check_true_scale(str(folder / "shrunk.pdf"), pattern, sheet, SETTINGS)
+    assert not result.passed and any("test square" in w for w in result.where)
+
+
+def test_unapproved_settings_are_stamped_on_the_cover(printed):
+    _, _, folder = printed
+    assert "Tolerance settings not yet approved by owner" in PdfReader(folder / "unapproved.pdf").pages[0].extract_text()
+    assert "not yet approved" not in PdfReader(folder / "true.pdf").pages[0].extract_text()
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.pdf'`.
+
+**Step 3: Create `engine/plush/pdf.py`**
+
+```python
+"""The printable pattern on US Letter: cover, true-scale pattern pages, cutting layout, directions.
+
+Page 1 carries the test square, the legend, the page map, the materials and the settings
+status. The pattern pages show every piece at true size (72 points per inch), tiled with
+overlaps. Check 2 reads the PDF back and confirms the test square and every piece's cut
+line are exactly where the layout puts them, at 72 points per inch.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+import numpy as np
+from pypdf import PdfReader
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import simpleSplit
+from reportlab.pdfgen import canvas
+
+from plush.checks import CheckResult
+from plush.directions import Step
+from plush.finishing import Pattern, Piece
+from plush.layout import FabricLayout
+from plush.materials import Materials
+from plush.settings import Settings
+
+PT = 72.0
+PAGE_W, PAGE_H = letter  # 612 x 792 points
+MARGIN_IN = 0.5
+PRINT_W_IN = PAGE_W / PT - 2 * MARGIN_IN
+PRINT_H_IN = PAGE_H / PT - 2 * MARGIN_IN
+GAP_IN = 0.5  # space between pieces on the pattern pages
+COLUMNS = 2  # the pattern area is this many pages wide (more if a piece needs it)
+TOLERANCE_PT = 0.01
+
+
+@dataclass
+class Sheet:
+    offsets: dict[str, np.ndarray]  # piece -> shift of its outlines on the pattern area, inches
+    width_in: float
+    height_in: float
+    tiles: list[tuple[int, int, np.ndarray]]  # (row from the top, column, lower-left of the printable area)
+
+
+def sheet_layout(pattern: Pattern, settings: Settings) -> Sheet:
+    """Pack the pieces in rows on the pattern area (top to bottom), then cut the area into pages."""
+    step_x, step_y = PRINT_W_IN - settings.tile_overlap_in, PRINT_H_IN - settings.tile_overlap_in
+    widest = max(np.ptp(p.cut[:, 0]) for p in pattern.pieces.values())
+    columns = max(COLUMNS, math.ceil((widest + 2 * GAP_IN - settings.tile_overlap_in) / step_x))
+    width = columns * step_x + settings.tile_overlap_in
+    rows_down = []  # (piece, x of its left edge, distance of its top edge below the area's top)
+    x, down, row_height = GAP_IN, GAP_IN, 0.0
+    for p in sorted(pattern.pieces.values(), key=lambda p: -np.ptp(p.cut[:, 1])):
+        w, h = np.ptp(p.cut, axis=0)
+        if x > GAP_IN and x + w + GAP_IN > width:
+            x, down, row_height = GAP_IN, down + row_height + GAP_IN, 0.0
+        rows_down.append((p, x, down))
+        x += w + GAP_IN
+        row_height = max(row_height, h)
+    height = down + row_height + GAP_IN
+    offsets = {}
+    for p, left, top_down in rows_down:
+        lo, hi = p.cut.min(axis=0), p.cut.max(axis=0)
+        offsets[p.name] = np.array([left - lo[0], (height - top_down) - hi[1]])
+    rows = max(1, math.ceil((height - settings.tile_overlap_in) / step_y))
+    tiles = [(r, c, np.array([c * step_x, height - r * step_y - PRINT_H_IN]))
+             for r in range(rows) for c in range(columns)]
+    return Sheet(offsets, width, height, tiles)
+
+
+def _on_tile(outline: np.ndarray, origin: np.ndarray) -> bool:
+    lo, hi = outline.min(axis=0), outline.max(axis=0)
+    return bool(np.all(hi >= origin) and np.all(lo <= origin + [PRINT_W_IN, PRINT_H_IN]))
+
+
+def _to_page(points_in: np.ndarray, origin_in: np.ndarray) -> np.ndarray:
+    return (MARGIN_IN + np.asarray(points_in) - origin_in) * PT
+
+
+def _poly(c: canvas.Canvas, pts: np.ndarray, closed: bool) -> None:
+    path = c.beginPath()
+    path.moveTo(*pts[0])
+    for q in pts[1:]:
+        path.lineTo(*q)
+    if closed:
+        path.close()
+    c.drawPath(path, stroke=1, fill=0)
+
+
+def _arrow(c: canvas.Canvas, tail: np.ndarray, head: np.ndarray, both: bool) -> None:
+    c.line(*tail, *head)
+    d = (head - tail) / np.linalg.norm(head - tail) * 6
+    n = np.array([-d[1], d[0]]) * 0.5
+    for tip, back in [(head, -d)] + ([(tail, d)] if both else []):
+        c.line(*tip, *(tip + back + n))
+        c.line(*tip, *(tip + back - n))
+
+
+def _draw_piece(c: canvas.Canvas, piece: Piece, offset: np.ndarray, origin: np.ndarray, settings: Settings) -> None:
+    def page(pts):
+        return _to_page(np.asarray(pts) + offset, origin)
+
+    c.setStrokeColorRGB(0, 0, 0)
+    c.setLineWidth(0.8)
+    c.setDash()
+    _poly(c, page(piece.cut), closed=True)  # the cut line: check 2 reads this path back
+    c.setLineWidth(0.5)
+    c.setDash(3, 2)
+    c.setStrokeColorRGB(0.4, 0.4, 0.4)
+    _poly(c, page(piece.stitch), closed=True)
+    c.setDash()
+    stitch = piece.stitch
+    for point, label in piece.notches:
+        i = int(np.argmin(np.linalg.norm(stitch - point, axis=1)))
+        tangent = stitch[(i + 1) % len(stitch)] - stitch[i - 1]
+        normal = np.array([tangent[1], -tangent[0]]) / np.linalg.norm(tangent)  # outward: the line runs anticlockwise
+        a, b = page([point, point + normal * settings.seam_allowance_in])
+        c.setStrokeColorRGB(0, 0, 0)
+        c.setLineWidth(0.8)
+        c.line(*a, *b)
+        c.setFont("Helvetica", 5)
+        c.drawString(*(b + normal * 2), label[:14])
+    c.setStrokeColorRGB(0.85, 0.1, 0.1)
+    c.setLineWidth(2)
+    for gap in piece.gaps:
+        _poly(c, page(gap), closed=False)
+    c.setLineWidth(0.6)
+    c.setDash(1, 2)
+    c.setStrokeColorRGB(0.1, 0.3, 0.8)
+    for line, label in piece.marks:
+        if len(line) > 1:
+            _poly(c, page(line), closed=False)
+            c.setFont("Helvetica", 5)
+            c.drawString(*page(line[len(line) // 2]), label)
+    c.setDash()
+    c.setStrokeColorRGB(0, 0, 0)
+    c.setLineWidth(0.6)
+    tail, head = page(piece.grain)
+    _arrow(c, tail, head, both=True)
+    if piece.nap is not None:
+        nap_tail, nap_head = page(piece.nap) + [12, 0]
+        _arrow(c, nap_tail, nap_head, both=False)
+    c.setFont("Helvetica", 7)
+    centre = page([piece.grain.mean(axis=0)])[0]
+    for k, line in enumerate(simpleSplit(piece.label, "Helvetica", 7, 140)):
+        c.drawString(centre[0] + 18, centre[1] - 8 * k, line)
+
+
+def _cover(c: canvas.Canvas, sheet: Sheet, materials: Materials, settings: Settings, title: str,
+           checks: list[CheckResult]) -> None:
+    left, top = MARGIN_IN * PT, PAGE_H - MARGIN_IN * PT
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(left, top - 16, title)
+    c.setFont("Helvetica", 9)
+    c.drawString(left, top - 32, f"US Letter, inches. Print at 100% (actual size); do not scale to fit. "
+                                 f"{len(sheet.tiles)} pattern pages.")
+    if not settings.approved_by_owner:
+        c.setFillColorRGB(0.8, 0, 0)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(left, top - 48, "Tolerance settings not yet approved by owner")
+        c.setFillColorRGB(0, 0, 0)
+    side = settings.test_square_in * PT
+    square_y = top - 70 - side
+    c.setLineWidth(1)
+    c.rect(left, square_y, side, side)  # the test square: check 2 reads this back
+    c.setFont("Helvetica", 9)
+    c.drawString(left + side + 10, square_y + side - 10,
+                 f"Test square: must measure exactly {settings.test_square_in:g} in on each side.")
+    legend = ["Solid line: cut.", "Dashed line: sew.", "Short ticks: notches; match the letters.",
+              "Red: leave open for turning and stuffing.", "Blue dotted: where another part or a feature goes.",
+              "Double arrow: straight grain. Single arrow: the way the fur runs."]
+    for k, line in enumerate(legend):
+        c.drawString(left + side + 10, square_y + side - 26 - 12 * k, line)
+
+    y = square_y - 30
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(left, y, "Page map: tape the pattern pages together like this")
+    rows = max(r for r, _, _ in sheet.tiles) + 1
+    cols = max(col for _, col, _ in sheet.tiles) + 1
+    cell = min(28.0, 200.0 / cols)
+    for r, col, _ in sheet.tiles:
+        x0, y0 = left + col * cell, y - 10 - (r + 1) * cell
+        c.rect(x0, y0, cell, cell)
+        c.setFont("Helvetica", 7)
+        c.drawString(x0 + 3, y0 + cell / 2 - 3, f"{r + 1}.{col + 1}")
+    y -= 30 + rows * cell
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(left, y, "Materials")
+    c.setFont("Helvetica", 9)
+    lines = [f"Fabric {colour}: {width:g} in wide, {length:.1f} in long" for colour, width, length in materials.fabric]
+    lines.append(f"Stuffing to fill about {materials.stuffed_volume_cuin:.0f} cubic inches")
+    lines += [f"Safety eyes ({name}): {count} x {diameter:.2f} in across"
+              for name, diameter, count in materials.safety_eyes]
+    lines.append(materials.thread)
+    for k, line in enumerate(lines):
+        c.drawString(left, y - 14 - 12 * k, line)
+    y -= 30 + 12 * len(lines)
+    if checks:
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(left, y, "Automatic checks")
+        c.setFont("Helvetica", 8)
+        for k, r in enumerate(checks):
+            c.drawString(left, y - 14 - 11 * k,
+                         f"{r.number}. {r.name}: {'pass' if r.passed else 'FAIL'} - {r.measured} (limit {r.limit})")
+
+
+def _pattern_page(c: canvas.Canvas, pattern: Pattern, sheet: Sheet, tile, settings: Settings) -> None:
+    r, col, origin = tile
+    rows = max(t[0] for t in sheet.tiles) + 1
+    cols = max(t[1] for t in sheet.tiles) + 1
+    left, bottom = MARGIN_IN * PT, MARGIN_IN * PT
+    c.setFont("Helvetica", 8)
+    c.drawString(left, PAGE_H - MARGIN_IN * PT / 2,
+                 f"Pattern page {r + 1}.{col + 1} (rows 1-{rows}, columns 1-{cols}); "
+                 f"overlap neighbouring pages by {settings.tile_overlap_in:g} in up to the grey lines")
+    c.saveState()
+    clip = c.beginPath()
+    clip.rect(left, bottom, PRINT_W_IN * PT, PRINT_H_IN * PT)
+    c.clipPath(clip, stroke=0, fill=0)
+    for name, offset in sheet.offsets.items():
+        piece = pattern.pieces[name]
+        if _on_tile(piece.cut + offset, origin):
+            _draw_piece(c, piece, offset, origin, settings)
+    c.restoreState()
+    c.setStrokeColorRGB(0.7, 0.7, 0.7)
+    c.setLineWidth(0.4)
+    overlap = settings.tile_overlap_in * PT
+    c.line(left + overlap, bottom, left + overlap, bottom + PRINT_H_IN * PT)
+    c.line(left, bottom + PRINT_H_IN * PT - overlap, left + PRINT_W_IN * PT, bottom + PRINT_H_IN * PT - overlap)
+
+
+def _cutting_layout(c: canvas.Canvas, fabric: list[FabricLayout]) -> None:
+    left, top = MARGIN_IN * PT, PAGE_H - MARGIN_IN * PT
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(left, top - 14, "Cutting layout (not to scale)")
+    y = top - 34
+    for f in fabric:
+        scale = min(PRINT_W_IN * PT / f.width_in, 250 / max(f.length_in, 1e-6))
+        if y - f.length_in * scale - 30 < MARGIN_IN * PT:
+            c.showPage()
+            y = top - 20
+        c.setFont("Helvetica", 9)
+        c.setFillColorRGB(0, 0, 0)
+        c.drawString(left, y, f"Fabric {f.colour}: {f.width_in:g} in wide, {f.length_in:.1f} in long. "
+                              "Grain runs up the page; place every piece as shown.")
+        y -= 8 + f.length_in * scale
+        c.setStrokeColorRGB(0.5, 0.5, 0.5)
+        c.rect(left, y, f.width_in * scale, f.length_in * scale)
+        c.setStrokeColorRGB(0, 0, 0)
+        for placement in f.placements:
+            pts = placement.outline * scale + [left, y]
+            _poly(c, pts, closed=True)
+            c.setFont("Helvetica", 5)
+            name = placement.piece.split("/")[1] + (" (mirrored)" if placement.mirrored else "")
+            c.drawString(*(pts.mean(axis=0) - [10, 2]), name)
+        y -= 24
+
+
+def _diagram(c: canvas.Canvas, pattern: Pattern, step: Step, x0: float, y0: float, size: float) -> None:
+    names = list(dict.fromkeys(name for name, _ in step.highlight))
+    shapes = [pattern.pieces[n].stitch for n in names]
+    widths = [float(np.ptp(s[:, 0])) for s in shapes]
+    scale = min(size / (sum(widths) + 0.3 * len(shapes)), size / max(float(np.ptp(s[:, 1])) for s in shapes))
+    x = x0
+    shift = {}
+    for n, s, w in zip(names, shapes, widths):
+        shift[n] = np.array([x, y0]) - s.min(axis=0) * scale
+        c.setStrokeColorRGB(0.5, 0.5, 0.5)
+        c.setLineWidth(0.5)
+        _poly(c, s * scale + shift[n], closed=True)
+        x += (w + 0.3) * scale
+    c.setStrokeColorRGB(0.85, 0.1, 0.1)
+    c.setLineWidth(1.5)
+    for n, line in step.highlight:
+        if len(line) > 1:
+            _poly(c, np.asarray(line) * scale + shift[n], closed=False)
+    c.setStrokeColorRGB(0, 0, 0)
+
+
+def _directions(c: canvas.Canvas, pattern: Pattern, steps: list[Step]) -> None:
+    left, top = MARGIN_IN * PT, PAGE_H - MARGIN_IN * PT
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(left, top - 14, "Directions")
+    y = top - 36
+    box = 1.6 * PT
+    text_width = PRINT_W_IN * PT - box - 12
+    for s in steps:
+        lines = simpleSplit(f"{s.number}. {s.text}", "Helvetica", 9, text_width)
+        height = max(12 * len(lines), box if s.highlight else 0) + 10
+        if y - height < MARGIN_IN * PT:
+            c.showPage()
+            y = top - 20
+        c.setFont("Helvetica", 9)
+        for k, line in enumerate(lines):
+            c.drawString(left, y - 12 * k, line)
+        if s.highlight:
+            _diagram(c, pattern, s, PAGE_W - MARGIN_IN * PT - box, y - box + 9, box)
+        y -= height
+
+
+def write_pdf(path: str, pattern: Pattern, sheet: Sheet, fabric: list[FabricLayout], steps: list[Step],
+              materials: Materials, settings: Settings, title: str, checks: list[CheckResult] | None = None,
+              scale: float = 1.0) -> None:
+    """Write the pattern. `scale` is 1.0 for real use; other values exist only so a test can prove
+    that check 2 catches a pattern saved or printed at the wrong size."""
+    c = canvas.Canvas(path, pagesize=letter)
+    c.setTitle(title)
+
+    def new_page():
+        if scale != 1.0:
+            c.scale(scale, scale)
+
+    new_page()
+    _cover(c, sheet, materials, settings, title, checks or [])
+    for tile in sheet.tiles:
+        c.showPage()
+        new_page()
+        _pattern_page(c, pattern, sheet, tile, settings)
+    c.showPage()
+    new_page()
+    _cutting_layout(c, fabric)
+    c.showPage()
+    new_page()
+    _directions(c, pattern, steps)
+    c.showPage()
+    c.save()
+
+
+def _read_paths(page) -> tuple[list[np.ndarray], list[tuple[float, float]]]:
+    """Every path (as page points) and every rectangle (width, height, in points) drawn on a page."""
+    paths, rects, current = [], [], []
+
+    def visit(op, args, cm, tm):
+        nonlocal current
+        a, b, c_, d, e, f = (float(v) for v in cm)
+        if op == b"m":
+            if current:
+                paths.append(np.array(current))
+            x, y = float(args[0]), float(args[1])
+            current = [(a * x + c_ * y + e, b * x + d * y + f)]
+        elif op == b"l" and current:
+            x, y = float(args[0]), float(args[1])
+            current.append((a * x + c_ * y + e, b * x + d * y + f))
+        elif op == b"re":
+            rects.append((abs(float(args[2]) * a), abs(float(args[3]) * d)))
+
+    page.extract_text(visitor_operand_before=visit)
+    if current:
+        paths.append(np.array(current))
+    return paths, rects
+
+
+def check_true_scale(pdf_path: str, pattern: Pattern, sheet: Sheet, settings: Settings) -> CheckResult:
+    """Check 2: the test square and every piece's cut line are at exact size and position."""
+    reader = PdfReader(pdf_path)
+    where = []
+    for i, page in enumerate(reader.pages):
+        if (float(page.mediabox.width), float(page.mediabox.height)) != (PAGE_W, PAGE_H):
+            where.append(f"page {i + 1} is not US Letter")
+    side = settings.test_square_in * PT
+    _, rects = _read_paths(reader.pages[0])
+    square_error = min((max(abs(w - side), abs(h - side)) for w, h in rects), default=float("inf"))
+    if square_error > TOLERANCE_PT:
+        where.append(f"test square is off by {square_error:.3f} pt")
+    worst = 0.0
+    for k, (r, col, origin) in enumerate(sheet.tiles):
+        paths, _ = _read_paths(reader.pages[1 + k])
+        for name, offset in sheet.offsets.items():
+            cut = pattern.pieces[name].cut + offset
+            if not _on_tile(cut, origin):
+                continue
+            expected = _to_page(cut, origin)
+            candidates = [p for p in paths if len(p) == len(expected)]
+            error = min((float(np.abs(p - expected).max()) for p in candidates), default=float("inf"))
+            worst = max(worst, error)
+            if error > TOLERANCE_PT:
+                where.append(f"{name} on page {r + 1}.{col + 1}: off by {error:.3f} pt")
+    return CheckResult(2, "True scale", not where, f"square {square_error:.4f} pt, pieces {worst:.4f} pt",
+                       f"{TOLERANCE_PT} pt", where)
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `95 passed`, in about 2 min 20 s.
+
+**Step 5:** Commit: `git add engine/plush/pdf.py engine/tests/test_pdf.py && git commit -m "feat(engine): true-scale US Letter PDF and check 2"`
+
+### Task 6.6: Record Phase 6
+
+Add "Phase 6 done: 95 passed, 0 failed, 0 skipped" with the date to `docs/PROGRESS.md`, along with the test bear's check 2 and 6 results and the page count. Then commit.
 
 ## Phase 7: Projects, versions, check 7 and the local service
 
@@ -5288,7 +6857,7 @@ Add "Phase 5 done: 78 passed, 0 failed, 0 skipped" with the date to `docs/PROGRE
 
 **Task 7.3: Measure.** Time POST `/mesh` for the bear on this Mac and record the measured number in PROGRESS.md. The owner judges whether editing feels responsive. Only if it doesn't, propose a TypeScript port of the geometry with a parity test, and ask before building it.
 
-**Acceptance:** 102 passed.
+**Acceptance:** 104 passed.
 
 ## Phase 8: Reading the picture (hosted vision model)
 
@@ -5307,7 +6876,7 @@ Then expand this phase.
 - Run: `cd engine && uv run pytest -m live -q`, only with approval.
 - Live tests are not counted in the default totals.
 
-**Acceptance:** 104 passed in the default run, with the live results recorded separately.
+**Acceptance:** 106 passed in the default run, with the live results recorded separately.
 
 ## Phase 9: Angular front end
 

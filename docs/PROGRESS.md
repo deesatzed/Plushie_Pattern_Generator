@@ -30,9 +30,9 @@ Read this file and `git log` before starting any work session.
   - Check 3 (stuffed shape): pass, mean 0.53%, worst 2.62% (limits 3% / 8%). The ears are flat, so not simulated; their outline is exact.
   - Check 4 (flattening stretch): pass, 4.61% (limit 5%).
   - Check 5 (sewable): pass. The arms are 0.0029 in off the body and the head 0.0042 in. The ears are 0.089 in off, because a straight base sits on a curved head; that is within the 1/4 in allowance.
-- [ ] Phase 6: outputs (expected 93)
-- [ ] Phase 7: projects and local service (expected 102)
-- [ ] Phase 8: picture reading (expected 104, plus live tests run with approval)
+- [ ] Phase 6: outputs (expected 95; expanded in the plan 2026-10-12)
+- [ ] Phase 7: projects and local service (expected 104)
+- [ ] Phase 8: picture reading (expected 106, plus live tests run with approval)
 - [ ] Phase 9: Angular front end (expected 10 Angular tests)
 - [ ] Phase 10: documentation and end-to-end run
 
