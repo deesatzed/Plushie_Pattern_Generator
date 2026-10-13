@@ -10,7 +10,8 @@ import trimesh
 
 from plush.flatten import SeamLink, flatten_together
 from plush.inflate import Inflated, deviation, inflate, membrane_from_panels
-from plush.panels import Panel
+from plush.panels import Panel, PanelSet
+from plush.settings import Settings
 
 MAX_ROUNDS = 4
 STEP = 1.0  # fraction of the measured bulge removed per round
@@ -87,3 +88,18 @@ def _adjusted(panels: list[Panel], inflated: Inflated, target: trimesh.Trimesh, 
         new_panels.append(Panel(p.name, p.part, p.colour, p.vertices, p.faces, flat.uv - flat.uv.mean(axis=0),
                                 p.stretch, p.edges, p.cut, p.mirrored, p.upright))
     return new_panels
+
+
+def stuff_all(ps: PanelSet, settings: Settings) -> dict[str, StuffingResult | None]:
+    """Stuff every 3D part (flat parts are cut exactly and not simulated); use the corrected panels."""
+    results: dict[str, StuffingResult | None] = {}
+    for part in dict.fromkeys(p.part for p in ps.panels.values()):
+        panels = [p for p in ps.panels.values() if p.part == part]
+        if panels[0].name.endswith(("/front", "/back")):
+            results[part] = None
+            continue
+        r = stuff(panels, settings.stuffed_mean_deviation, settings.stuffed_max_deviation)
+        for p in r.panels:
+            ps.panels[p.name] = p
+        results[part] = r
+    return results
