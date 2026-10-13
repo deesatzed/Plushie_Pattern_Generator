@@ -65,7 +65,7 @@ All Python packages were installed and imported on this Mac (M4 Pro, Python 3.13
 
 | End of phase | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|---|
-| Tests | 2 | 16 | 35 | 51 | 58 | 78 | 95 | 104 | 106 |
+| Tests | 2 | 16 | 35 | 51 | 58 | 78 | 95 | 104 | 107 |
 
 If a phase's expansion changes its test count, update this table in the same commit.
 
@@ -7352,22 +7352,442 @@ Add "Phase 7 done: 104 passed, 0 failed, 0 skipped" with the date to `docs/PROGR
 
 ## Phase 8: Reading the picture (hosted vision model)
 
-**Task 8.0: Gate G3.**
-1. Fetch `https://openrouter.ai/api/v1/models`.
-2. List the models that accept image input and support `structured_outputs` or `response_format`.
-3. The owner picks one. It is stored in `.env` as `PLUSH_VISION_MODEL` and never written into code.
+**Task 8.0: Expand. Done 2026-10-12.** Developed and run in a scratch copy first; the vision and server tests pass offline (8 passed, 1 live test deselected).
 
-Then expand this phase.
+Notes from expanding:
+- **Built before gate G3.** The code never names a model; it reads `PLUSH_VISION_MODEL`. So Tasks 8.1 and 8.2 are built first, and gate G3 (choosing the model) and gate G4 (the live test with the owner's pictures) are asked together afterwards.
+- **OpenRouter's list on 2026-10-12** had 192 models that accept images and support `structured_outputs` (excluding `:free`, `:batch` and routers). A short list is shown to the owner at G3.
+- **Compatibility choices.** The request uses `response_format` `json_schema` with `strict: false`, and the schema has the `discriminator` hints stripped, because some providers reject both. The answer is still validated in full by `parse_kit`. Anything invalid becomes a `ReadError` (HTTP 502), never a made-up kit.
+- **The offline network test** sends every request to a closed local port through `HTTPS_PROXY`. The real code path runs, nothing leaves the Mac, and no key is sent anywhere.
+- **A new service test:** POST `/read` answers 503 when picture reading is not set up. Phase 8 therefore has 3 default tests instead of 2.
 
-**Task 8.1: `engine/plush/vision.py`.** `build_request(picture_bytes, mime, model)` is a pure function. `read_picture(...)` calls OpenRouter with httpx and parses the reply with `parse_kit`. On any failure it raises `ReadError` with the reason. There is never a fallback kit. 2 offline tests:
-- `build_request` includes the kit JSON Schema and the image as a data URL.
-- With `HTTPS_PROXY=http://127.0.0.1:9` set through `monkeypatch.setenv`, `read_picture` raises `ReadError` mentioning the network. This runs the real code path, with outbound traffic blocked.
+### Task 8.1: Vision request and reading
 
-**Task 8.2: Live test (gate G4)**, marked `@pytest.mark.live`. It reads the owner's pictures from `projects/_live_pictures/`, which git ignores, and asserts that each returns a valid `Kit`. It records the model ID and the measured response times in PROGRESS.md.
-- Run: `cd engine && uv run pytest -m live -q`, only with approval.
-- Live tests are not counted in the default totals.
+**Files:** create `engine/plush/vision.py`; test `engine/tests/test_vision.py`.
 
-**Acceptance:** 106 passed in the default run, with the live results recorded separately.
+**Step 1: Write the failing test file `engine/tests/test_vision.py`**
+
+```python
+import base64
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from plush.parts import Kit
+from plush.vision import ReadError, build_request, read_picture
+
+LIVE_PICTURES = Path(__file__).resolve().parents[2] / "projects" / "_live_pictures"
+
+
+def test_request_carries_the_picture_the_schema_and_the_chosen_model():
+    body = build_request(b"\x89PNG picture bytes", "image/png", "provider/model-from-settings")
+    assert body["model"] == "provider/model-from-settings"
+    content = body["messages"][0]["content"]
+    assert content[1]["image_url"]["url"] == "data:image/png;base64," + base64.b64encode(b"\x89PNG picture bytes").decode()
+    schema = json.dumps(body["response_format"]["json_schema"]["schema"])
+    assert '"flat_sole"' in schema and '"discriminator"' not in schema
+
+
+def test_no_network_means_an_error_not_a_made_up_kit(monkeypatch):
+    # every outbound request goes to a closed local port: the real code path, with no network
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    with pytest.raises(ReadError, match="network"):
+        read_picture(b"\x89PNG", "image/png", "provider/model-from-settings", "no-key-needed-offline")
+
+
+@pytest.mark.live
+@pytest.mark.parametrize("picture", sorted(LIVE_PICTURES.glob("*.*")) if LIVE_PICTURES.exists() else [])
+def test_live_reading_of_owner_pictures(picture):
+    """Runs only with `pytest -m live`, with the owner's approval (gate G4)."""
+    kit = read_picture(picture.read_bytes(), "image/png" if picture.suffix == ".png" else "image/jpeg",
+                       os.environ["PLUSH_VISION_MODEL"], os.environ["OPENROUTER_API_KEY"])
+    assert isinstance(kit, Kit)
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: a collection error, `ModuleNotFoundError: No module named 'plush.vision'`.
+
+**Step 3: Create `engine/plush/vision.py`**
+
+```python
+"""Read a character picture into a part kit with a hosted vision model, through OpenRouter.
+
+The model is asked to answer in exactly the part-kit format (its JSON Schema). The answer is
+checked with parse_kit, and anything that does not fit is reported as an error. There is no
+fallback: a failed reading never produces a made-up kit. The model comes from the
+PLUSH_VISION_MODEL setting; no model name is written in this code.
+"""
+
+from __future__ import annotations
+
+import base64
+import copy
+
+import httpx
+from pydantic import ValidationError
+
+from plush.parts import Kit, kit_json_schema, parse_kit
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+TIMEOUT_S = 180.0
+
+PROMPT = """You are reading a picture of one cartoon or drawn character, to plan a sewn plush toy.
+Describe the character as a kit of parts, answering ONLY with JSON that matches the given schema.
+- There is exactly one root part: the body, a rounded_solid with no "attach".
+- The head and other rounded parts are rounded_solid and attach to the body.
+- Ears, wings and fins are flat_part. Arms, legs, tails, horns and trunks are limb.
+- Eyes, noses, mouths, cheeks and patches are surface_feature (choose embroidery, applique or safety_eye).
+- Left and right twins are ONE part with "pair": true, placed on the character's left (positive azimuth).
+- Attachment directions: azimuth 0 = front, +90 = the character's left; elevation +90 = top, -90 = bottom.
+- Sizes are fractions of the character's total height. Colours are hex, like #A0522D.
+- Part ids use lowercase letters, digits and underscores, and must not end in _left or _right.
+Simplify any detail a plush toy cannot show."""
+
+
+class ReadError(RuntimeError):
+    """The picture could not be read into a valid part kit."""
+
+
+def _portable_schema() -> dict:
+    """The kit schema without the 'discriminator' hints some providers reject (the answer is
+    still validated in full by parse_kit)."""
+    def strip(node):
+        if isinstance(node, dict):
+            node.pop("discriminator", None)
+            for value in node.values():
+                strip(value)
+        elif isinstance(node, list):
+            for value in node:
+                strip(value)
+        return node
+    return strip(copy.deepcopy(kit_json_schema()))
+
+
+def build_request(picture: bytes, media_type: str, model: str) -> dict:
+    data_url = f"data:{media_type};base64,{base64.b64encode(picture).decode()}"
+    return {
+        "model": model,
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": PROMPT},
+            {"type": "image_url", "image_url": {"url": data_url}},
+        ]}],
+        "response_format": {"type": "json_schema",
+                            "json_schema": {"name": "part_kit", "strict": False, "schema": _portable_schema()}},
+    }
+
+
+def _answer_text(reply: dict) -> str:
+    content = reply["choices"][0]["message"]["content"]
+    text = content if isinstance(content, str) else "".join(p.get("text", "") for p in content)
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+        text = text.rsplit("```", 1)[0]
+    return text
+
+
+def read_picture(picture: bytes, media_type: str, model: str, api_key: str) -> Kit:
+    body = build_request(picture, media_type, model)
+    headers = {"Authorization": f"Bearer {api_key}", "X-Title": "Plush pattern generator"}
+    try:
+        response = httpx.post(OPENROUTER_URL, json=body, headers=headers, timeout=TIMEOUT_S)
+    except httpx.HTTPError as e:
+        raise ReadError(f"could not reach OpenRouter (network problem): {e}") from e
+    if response.status_code != 200:
+        raise ReadError(f"OpenRouter answered {response.status_code}: {response.text[:300]}")
+    try:
+        text = _answer_text(response.json())
+    except (KeyError, IndexError, TypeError, ValueError) as e:
+        raise ReadError("OpenRouter's reply contained no answer") from e
+    try:
+        return parse_kit(text)
+    except ValidationError as e:
+        raise ReadError(f"the model's answer is not a valid part kit: {e}") from e
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `106 passed, 1 deselected`.
+
+**Step 5:** Commit: `git add engine/plush/vision.py engine/tests/test_vision.py && git commit -m "feat(engine): read a picture into a part kit through OpenRouter (no fallback)"`
+
+### Task 8.2: The read endpoint
+
+**Files:**
+- Modify (replace whole file): `engine/plush/server.py`
+- Test: `engine/tests/test_server.py` (replace whole file)
+
+**Step 1: Replace `engine/tests/test_server.py`**
+
+```python
+import base64
+import io
+
+import pytest
+from fastapi.testclient import TestClient
+from pypdf import PdfReader
+
+from plush.server import app_from_env, create_app
+
+from kits import bear, part
+
+
+@pytest.fixture(scope="module")
+def client(tmp_path_factory):
+    return TestClient(create_app(tmp_path_factory.mktemp("projects")))
+
+
+def new_project(client, name="bear"):
+    body = {"name": name, "picture_base64": base64.b64encode(b"\x89PNG test picture").decode(), "media_type": "image/png"}
+    return client.post("/api/projects", json=body).json()["slug"]
+
+
+def test_service_will_not_start_without_picture_reading_settings(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("PLUSH_VISION_MODEL", raising=False)
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY and PLUSH_VISION_MODEL"):
+        app_from_env()
+
+
+def test_picture_reading_says_when_it_is_not_set_up(client):
+    slug = new_project(client)
+    response = client.post(f"/api/projects/{slug}/read")
+    assert response.status_code == 503 and "PLUSH_VISION_MODEL" in response.json()["detail"]
+
+
+def test_an_invalid_kit_is_rejected_with_the_reason(client):
+    slug = new_project(client)
+    kit = bear()
+    part(kit, "arm")["end_shape"] = "claw"
+    response = client.put(f"/api/projects/{slug}/kit", json=kit)
+    assert response.status_code == 422
+    assert any("end_shape" in str(e["loc"]) for e in response.json()["detail"])
+
+
+def test_mesh_returns_every_placed_part(client):
+    slug = new_project(client)
+    assert client.put(f"/api/projects/{slug}/kit", json=bear()).status_code == 200
+    parts = client.post(f"/api/projects/{slug}/mesh", json={"finished_height_in": 12}).json()["parts"]
+    assert set(parts) == {"body", "head", "ear_left", "ear_right", "arm_left", "arm_right", "eye_left", "eye_right"}
+    assert all(len(p["vertices"]) > 0 and len(p["faces"]) > 0 for p in parts.values())
+
+
+def test_no_pattern_without_approval(client):
+    slug = new_project(client)
+    client.put(f"/api/projects/{slug}/kit", json=bear())
+    assert client.post(f"/api/projects/{slug}/pattern").status_code == 409
+    assert client.get(f"/api/projects/{slug}/pattern.pdf").status_code == 404
+
+
+def test_approved_bear_builds_a_pattern_that_passes_all_seven_checks(client):
+    slug = new_project(client)
+    client.put(f"/api/projects/{slug}/kit", json=bear())
+    vid = client.post(f"/api/projects/{slug}/approve", json={"finished_height_in": 12}).json()["version_id"]
+    response = client.post(f"/api/projects/{slug}/pattern")
+    report = response.json()
+    assert response.status_code == 200, [c for c in report["checks"] if not c["passed"]]
+    assert [c["number"] for c in report["checks"]] == [1, 2, 3, 4, 5, 6, 7]
+    assert report["version_id"] == vid
+    pdf = client.get(f"/api/projects/{slug}/pattern.pdf")
+    assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf"
+    cover = PdfReader(io.BytesIO(pdf.content)).pages[0].extract_text()
+    assert f"version {vid[:12]}" in cover  # the printed pattern carries its approved version
+```
+
+**Step 2:** Run `cd engine && uv run pytest -q`.
+Expected: `1 failed, 106 passed, 1 deselected`. The read endpoint does not exist yet, so the request gets 404 instead of 503.
+
+**Step 3: Replace `engine/plush/server.py`**
+
+```python
+"""Local web service for the editor. Run: uv run uvicorn plush.server:app --host 127.0.0.1 --port 8765
+
+It listens on this Mac only. The real entry point (`app`) refuses to start unless
+OPENROUTER_API_KEY and PLUSH_VISION_MODEL are set; `create_app` builds the same service
+for tests, with picture reading left out.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import json
+import os
+from dataclasses import asdict
+from pathlib import Path
+
+import numpy as np
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field, ValidationError
+
+from plush.geometry.assemble import assemble
+from plush.parts import parse_kit
+from plush.pattern import build_pattern
+from plush.projects import ApprovalError, Projects
+from plush.settings import Settings, load_settings
+from plush.vision import ReadError, read_picture
+
+REQUIRED_ENV = ("OPENROUTER_API_KEY", "PLUSH_VISION_MODEL")
+DEFAULT_PROJECTS = Path(__file__).resolve().parents[2] / "projects"
+PICTURE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+
+
+class NewProject(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    picture_base64: str
+    media_type: str
+
+
+class Height(BaseModel):
+    finished_height_in: float = Field(gt=2, le=60)
+
+
+def create_app(projects_root: Path, settings: Settings | None = None,
+               vision: tuple[str, str] | None = None) -> FastAPI:
+    """`vision` is (model, OpenRouter key); without it, picture reading answers 503."""
+    projects = Projects(projects_root)
+    settings = settings or load_settings()
+    app = FastAPI(title="Plush pattern engine")
+
+    def folder(slug: str):
+        try:
+            return projects.folder(slug)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+
+    @app.get("/api/settings")
+    def get_settings():
+        return asdict(settings)
+
+    @app.post("/api/projects")
+    def new_project(body: NewProject):
+        if body.media_type not in PICTURE_TYPES:
+            raise HTTPException(415, f"picture must be one of {sorted(PICTURE_TYPES)}")
+        try:
+            picture = base64.b64decode(body.picture_base64, validate=True)
+        except binascii.Error as e:
+            raise HTTPException(400, "picture_base64 is not valid base64") from e
+        return {"slug": projects.create(body.name, picture, PICTURE_TYPES[body.media_type])}
+
+    @app.get("/api/projects")
+    def list_projects():
+        return {"projects": projects.list()}
+
+    @app.get("/api/projects/{slug}")
+    def project(slug: str):
+        folder(slug)
+        drafts = projects.drafts(slug)
+        return {"slug": slug, "drafts": len(drafts), "approved": projects.approved(slug),
+                "has_pattern": projects.pdf_path(slug).exists()}
+
+    @app.post("/api/projects/{slug}/read")
+    def read(slug: str):
+        path = folder(slug)
+        if vision is None:
+            raise HTTPException(503, "picture reading is not set up: OPENROUTER_API_KEY and PLUSH_VISION_MODEL")
+        picture = next(path.glob("picture.*"))
+        media = {v: k for k, v in PICTURE_TYPES.items()}[picture.suffix.lstrip(".")]
+        try:
+            kit = read_picture(picture.read_bytes(), media, *vision)
+        except ReadError as e:
+            raise HTTPException(502, str(e)) from e
+        return {"draft": projects.save_draft(slug, kit), "kit": kit.model_dump(mode="json")}
+
+    @app.put("/api/projects/{slug}/kit")
+    def save_kit(slug: str, kit: dict):
+        folder(slug)
+        try:
+            parsed = parse_kit(json.dumps(kit))
+        except ValidationError as e:
+            return JSONResponse(status_code=422, content={"error": "invalid part kit", "detail": e.errors(include_url=False)})
+        return {"draft": projects.save_draft(slug, parsed)}
+
+    @app.get("/api/projects/{slug}/kit")
+    def latest_kit(slug: str):
+        folder(slug)
+        try:
+            return projects.latest(slug).model_dump(mode="json")
+        except ApprovalError as e:
+            raise HTTPException(404, str(e)) from e
+
+    @app.post("/api/projects/{slug}/mesh")
+    def mesh(slug: str, body: Height):
+        folder(slug)
+        try:
+            kit = projects.latest(slug)
+        except ApprovalError as e:
+            raise HTTPException(404, str(e)) from e
+        placed = assemble(kit, body.finished_height_in)
+        return {"parts": {name: {"part": p.part_id, "kind": p.kind,
+                                 "vertices": np.round(p.mesh.vertices, 4).tolist(),
+                                 "faces": p.mesh.faces.tolist()} for name, p in placed.items()}}
+
+    @app.post("/api/projects/{slug}/approve")
+    def approve(slug: str, body: Height):
+        folder(slug)
+        try:
+            return {"version_id": projects.approve(slug, body.finished_height_in)}
+        except ApprovalError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.post("/api/projects/{slug}/pattern")
+    def pattern(slug: str):
+        folder(slug)
+        try:
+            kit, height, version_check = projects.check_approved(slug)
+        except ApprovalError as e:
+            raise HTTPException(409, str(e)) from e
+        result = build_pattern(kit, height, settings, projects.pdf_path(slug), version_check)
+        version = projects.approved(slug)["version_id"]
+        projects.save_report(slug, result.checks, version)
+        report = {"version_id": version, "passed": result.passed, "checks": [asdict(c) for c in result.checks]}
+        return JSONResponse(status_code=200 if result.passed else 409, content=report)
+
+    @app.get("/api/projects/{slug}/pattern.pdf")
+    def pattern_pdf(slug: str):
+        path = projects.pdf_path(folder(slug).name)
+        if not path.exists():
+            raise HTTPException(404, "no printable pattern: build one that passes all seven checks")
+        return FileResponse(path, media_type="application/pdf", filename=f"{slug}-pattern.pdf")
+
+    return app
+
+
+def app_from_env() -> FastAPI:
+    missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError(f"cannot start: set {' and '.join(missing)} (see README)")
+    return create_app(Path(os.environ.get("PLUSH_PROJECTS_DIR", DEFAULT_PROJECTS)),
+                      vision=(os.environ["PLUSH_VISION_MODEL"], os.environ["OPENROUTER_API_KEY"]))
+
+
+def __getattr__(name: str):
+    # `uvicorn plush.server:app` builds the real app only when asked, so importing this module
+    # in tests does not require the environment to be set
+    if name == "app":
+        return app_from_env()
+    raise AttributeError(name)
+```
+
+**Step 4:** Run `cd engine && uv run pytest -q`.
+Expected: `107 passed, 1 deselected`.
+
+**Step 5:** Commit: `git add engine/plush/server.py engine/tests/test_server.py && git commit -m "feat(engine): picture-reading endpoint"`
+
+### Task 8.3: Gates G3 and G4, then the live test
+
+1. The owner chooses the model, which is stored in `.env` as `PLUSH_VISION_MODEL`.
+2. The owner puts real character pictures in `projects/_live_pictures/` (git ignores it) and approves sending them to OpenRouter and the chosen provider.
+3. Run `cd engine && uv run pytest -m live -q`.
+4. Record the model ID, each picture's result, and the measured response times in PROGRESS.md.
+
+### Task 8.4: Record Phase 8
+
+Add "Phase 8 done: 107 passed, 1 deselected (live)" and the live results to `docs/PROGRESS.md`, then commit.
 
 ## Phase 9: Angular front end
 
