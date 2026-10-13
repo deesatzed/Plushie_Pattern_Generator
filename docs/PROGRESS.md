@@ -30,7 +30,11 @@ Read this file and `git log` before starting any work session.
   - Check 3 (stuffed shape): pass, mean 0.53%, worst 2.62% (limits 3% / 8%). The ears are flat, so not simulated; their outline is exact.
   - Check 4 (flattening stretch): pass, 4.61% (limit 5%).
   - Check 5 (sewable): pass. The arms are 0.0029 in off the body and the head 0.0042 in. The ears are 0.089 in off, because a straight base sits on a curved head; that is within the 1/4 in allowance.
-- [ ] Phase 6: outputs (expected 95; expanded in the plan 2026-10-12)
+- [x] Phase 6: outputs. 2026-10-12: 95 passed, 0 failed, 0 skipped (full run about 2 min 23 s). On the test bear at 12 in, measured in the repo: the PDF has 22 pages (cover, 12 pattern pages, cutting layout, directions).
+  - Check 2 (true scale): pass. Test square 0.0000 pt off, piece outlines within 0.0005 pt.
+  - Check 6 (directions complete): pass, 45 steps.
+  - Materials: fabric #C8A27A 44 x 19.1 in, fabric #F2D0D9 44 x 2.0 in, stuffing for about 233 cubic inches, 2 safety eyes 0.51 in across.
+  - Rendered pages checked by eye (pdftoppm). Labels crowd each other on the cutting layout and around attachment notches; left for polish.
 - [ ] Phase 7: projects and local service (expected 104)
 - [ ] Phase 8: picture reading (expected 106, plus live tests run with approval)
 - [ ] Phase 9: Angular front end (expected 10 Angular tests)
