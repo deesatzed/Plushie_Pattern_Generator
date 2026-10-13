@@ -35,6 +35,7 @@ class Inflated:
     positions: np.ndarray
     iterations: int
     max_stretch: float  # largest principal stretch beyond the flat pattern, as a fraction
+    faces: np.ndarray | None = None  # the welded faces the positions belong to
 
 
 def membrane_from_panels(panels: list[Panel]) -> Membrane:
@@ -113,7 +114,7 @@ def inflate(m: Membrane, stiffness: tuple[float, ...] = STIFFNESS) -> Inflated:
         X[free] = result.x.reshape(-1, 3)
         iterations += int(result.nit)
     _, _, worst = _stretch_energy(X, m, 1.0)
-    return Inflated(X, iterations, worst)
+    return Inflated(X, iterations, worst, m.faces)
 
 
 def deviation(inflated: np.ndarray, target: trimesh.Trimesh) -> np.ndarray:
