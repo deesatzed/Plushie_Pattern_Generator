@@ -38,14 +38,16 @@ Read this file and `git log` before starting any work session.
 - [x] Phase 7: projects and local service. 2026-10-12: 104 passed, 0 failed, 0 skipped (full run about 3 min 10 s). In the service test, the approved test bear builds a pattern that passes all seven checks, and the PDF cover carries the version id.
   - Task 7.3, measured in the repo: POST /mesh for the test bear takes a median of 86 ms and at worst 105 ms over 10 requests (633 KB response). The owner judges responsiveness in Phase 9.
   - Known warning: Starlette's test client recommends the `httpx2` package (on PyPI, 2.13.1). It is a deprecation warning only; the package is not added.
-- [ ] Phase 8: picture reading (expected 107, plus live tests run with approval; expanded in the plan 2026-10-12)
+- [x] Phase 8 code: picture reading. 2026-10-12: 107 passed, 1 deselected (the live test), 0 failed.
+- [x] Gate G3 (2026-10-12): the owner chose `google/gemini-3.8-flash` for the app (`PLUSH_VISION_MODEL` in `.env`), to be compared with `openai/gpt-6.1-sol` in the live test.
+- [x] Gate G4 (2026-10-12): the owner approved sending their test pictures to OpenRouter and both providers. The pictures go in `projects/_live_pictures/` (ignored by git).
+- [ ] Live reading test. Run `cd engine && uv run --env-file ../.env python tools/live_read.py google/gemini-3.8-flash openai/gpt-6.1-sol`. It sends each picture once per model and records results and times. Waiting for the owner's pictures.
 - [ ] Phase 9: Angular front end (expected 10 Angular tests)
 - [ ] Phase 10: documentation and end-to-end run
 
 ## Open items waiting on the owner (approval gates in the plan)
 
-- G3: choose the vision model from OpenRouter's list (Phase 8).
-- G4: supply real pictures and approve the live reading test (Phase 8).
+- Put test pictures in `projects/_live_pictures/` for the live reading test.
 - G5: approve the end-to-end run with a real picture (Phase 10).
 - Optional: approval to run `npm audit` (it sends the dependency list to the npm registry).
 
