@@ -30,6 +30,7 @@ class Placed:
     anchor: np.ndarray | None  # point on the parent's surface where it attaches
     parent: str | None  # name of the placed parent
     scale_in: float = 0.0  # inches per kit unit after scaling to the finished height
+    translation: np.ndarray | None = None  # world = local @ rotation.T + translation (local built at scale_in)
 
 
 def _rotation(axis: np.ndarray, angle_deg: float) -> np.ndarray:
@@ -47,7 +48,7 @@ def _perpendicular(v: np.ndarray, n: np.ndarray, fallback: np.ndarray) -> np.nda
     return _unit(p)
 
 
-def _local_mesh(part, scale_in: float) -> trimesh.Trimesh:
+def local_mesh(part, scale_in: float) -> trimesh.Trimesh:
     builders = {
         "rounded_solid": rounded_solid_mesh,
         "limb": limb_mesh,
@@ -74,9 +75,9 @@ def _surface_hit(parent: Placed, direction: np.ndarray, name: str) -> tuple[np.n
 
 
 def _place(part, parent: Placed | None, scale_in: float, name: str, parent_name: str | None) -> Placed:
-    local = _local_mesh(part, scale_in)
+    local = local_mesh(part, scale_in)
     if parent is None:
-        return Placed(part.id, part.kind, local, np.eye(3), None, None)
+        return Placed(part.id, part.kind, local, np.eye(3), None, None, translation=np.zeros(3))
 
     a = part.attach
     az, el = np.radians(a.azimuth_deg), np.radians(a.elevation_deg)
@@ -106,7 +107,7 @@ def _place(part, parent: Placed | None, scale_in: float, name: str, parent_name:
 
     mesh = local.copy()
     mesh.vertices = mesh.vertices @ rotation.T + position
-    return Placed(part.id, part.kind, mesh, rotation, anchor, parent_name)
+    return Placed(part.id, part.kind, mesh, rotation, anchor, parent_name, translation=position)
 
 
 def _mirror(placed: Placed, renames: dict[str, str]) -> Placed:
@@ -116,7 +117,8 @@ def _mirror(placed: Placed, renames: dict[str, str]) -> Placed:
     )
     anchor = None if placed.anchor is None else placed.anchor @ flip
     parent = renames.get(placed.parent, placed.parent)
-    return Placed(placed.part_id, placed.kind, mesh, flip @ placed.rotation, anchor, parent)
+    return Placed(placed.part_id, placed.kind, mesh, flip @ placed.rotation, anchor, parent,
+                  translation=placed.translation @ flip)
 
 
 def assemble(kit: Kit, finished_height_in: float) -> dict[str, Placed]:
@@ -159,6 +161,7 @@ def assemble(kit: Kit, finished_height_in: float) -> dict[str, Placed]:
     for p in placed.values():
         p.mesh.vertices = p.mesh.vertices * k + shift
         p.scale_in = finished_height_in * k
+        p.translation = p.translation * k + shift
         if p.anchor is not None:
             p.anchor = p.anchor * k + shift
     return placed

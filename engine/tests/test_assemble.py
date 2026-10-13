@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from plush.geometry.assemble import assemble
+from plush.geometry.assemble import assemble, local_mesh
 from plush.geometry.rounded_solid import rounded_solid_mesh
 from plush.parts import RoundedSolid, parse_kit
 
@@ -50,3 +50,11 @@ def test_assembly_height_equals_finished_height(placed):
 def test_scale_rebuilds_parts_at_finished_size(placed):
     rebuilt = rounded_solid_mesh(RoundedSolid(**BODY), placed["body"].scale_in)
     assert rebuilt.extents == pytest.approx(placed["body"].mesh.extents, rel=1e-9)
+
+
+def test_translation_maps_local_shapes_into_place(placed):
+    for name in ("body", "head", "arm_left", "arm_right"):
+        p = placed[name]
+        part = next(q for q in parse_kit(json.dumps(bear())).parts if q.id == p.part_id)
+        local = local_mesh(part, p.scale_in).vertices
+        assert np.abs(local @ p.rotation.T + p.translation - p.mesh.vertices).max() < 1e-9, name
