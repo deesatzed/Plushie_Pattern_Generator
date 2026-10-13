@@ -36,8 +36,11 @@ def point_at_fraction(points: np.ndarray, fractions: np.ndarray) -> np.ndarray:
 
 
 def notches(ps: PanelSet, seam: Seam, spacing_in: float) -> list[np.ndarray]:
-    """Matching notch points on each side, evenly spaced no more than spacing_in apart."""
+    """Matching notch points on each side, evenly spaced no more than spacing_in apart.
+
+    Every seam gets at least one (in its middle), so even a short seam shows which pieces meet.
+    """
     length = float(np.mean(side_lengths(ps, seam)))
-    intervals = max(1, int(np.ceil(length / spacing_in)))
+    intervals = max(2, int(np.ceil(length / spacing_in)))
     fractions = np.arange(1, intervals) / intervals
     return [point_at_fraction(side_points(ps, s), fractions) for s in seam.sides]
