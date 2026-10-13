@@ -14,7 +14,7 @@ notch_spacing_in = 2.0
 
 [tolerances]
 seam_length_diff_in = 0.03125
-max_flatten_stretch = 0.03
+max_flatten_stretch = 0.05  # raised from 0.03 by the owner on 2026-10-12 after the gore comparison (PROGRESS.md)
 stuffed_mean_deviation = 0.03
 stuffed_max_deviation = 0.08
 

@@ -34,7 +34,6 @@ Read this file and `git log` before starting any work session.
 
 ## Open items waiting on the owner (approval gates in the plan)
 
-- After Phase 4: review check-3 results for 6, 8 and 12 gores, and decide whether to keep the 3% flattening-stretch limit (owner's choice, 2026-10-12).
 - G3: choose the vision model from OpenRouter's list (Phase 8).
 - G4: supply real pictures and approve the live reading test (Phase 8).
 - G5: approve the end-to-end run with a real picture (Phase 10).
@@ -48,3 +47,4 @@ See the critique's findings C1, C2 and M1 to M10. The design replaces the code i
 
 - 2026-10-12: side panels plus a gusset removed from version 1. They need stretchy fabric; measurements are in the design doc. Rounded parts use gores, plus a flat base when the part has a flat bottom.
 - 2026-10-12: the 3% stretch limit kept for now, to be revisited after Phase 4.
+- 2026-10-12: after the Task 4.3 comparison, the owner raised `max_flatten_stretch` from 3% to 5%. Round parts get about 8 gores instead of 12. On the test bear's head, the simulated stuffed shape stays within 1.59% of the model at the worst point. Measured after the change: the test bear has a body of 7 gores + base, a head of 8 gores, arms of 6 strips each, and an ear front + back; worst flattening stretch 4.55%; engine tests 58 passed, 0 failed.
