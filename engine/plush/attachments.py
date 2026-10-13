@@ -36,7 +36,7 @@ class AttachmentMark:
     gap_in: float  # largest distance from the child's opening to the parent's surface
 
 
-class _Surface:
+class PartSurface:
     """A part's 3D panels, for projecting points onto them and reading the flat position."""
 
     def __init__(self, ps: PanelSet, part_id: str):
@@ -133,7 +133,7 @@ def attachment_marks(kit: Kit, ps: PanelSet, placed: dict[str, Placed]) -> list[
         if child.parent is None or child.kind == "surface_feature":
             continue
         parent = placed[child.parent]
-        parent_surface, child_surface = _Surface(ps, parent.part_id), _Surface(ps, child.part_id)
+        parent_surface, child_surface = PartSurface(ps, parent.part_id), PartSurface(ps, child.part_id)
         points, ring = _opening(ps, by_id[child.part_id], child, parent)
 
         def to_parent(p):

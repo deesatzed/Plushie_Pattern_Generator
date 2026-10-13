@@ -12,6 +12,7 @@ from shapely.geometry.polygon import orient
 
 from plush.allowance import cut_outline
 from plush.attachments import AttachmentMark, attachment_marks
+from plush.features import applique_templates, feature_marks
 from plush.geometry.assemble import Placed
 from plush.panels import Panel, PanelSet
 from plush.parts import Kit
@@ -44,6 +45,7 @@ class Pattern:
     seam_letters: dict[str, str]
     attachments: list[AttachmentMark]
     panels: PanelSet
+    features: list[tuple[str, str, str, np.ndarray]] = field(default_factory=list)  # see feature_marks
 
 
 def seam_letter(i: int) -> str:
@@ -125,4 +127,15 @@ def finish(kit: Kit, placed: dict[str, Placed], ps: PanelSet, settings: Settings
                 pieces[panel_name].marks.append((line, f"sew to {on}"))
             for panel_name, point in m.child_notches:
                 pieces[panel_name].notches.append((point, f"to {on}"))
-    return Pattern(pieces, letters, marks, ps)
+
+    features = feature_marks(kit, ps, placed)
+    for _, panel_name, label, line in features:
+        pieces[panel_name].marks.append((line, label))
+    for part_id, label, outline, cut, mirrored in applique_templates(kit, placed):
+        part = next(p for p in kit.parts if p.id == part_id)
+        centre = outline.mean(axis=0)
+        half = 0.4 * np.ptp(outline[:, 1]) / 2
+        pieces[f"{part_id}/template"] = Piece(f"{part_id}/template", part_id, label, part.colour, cut, mirrored,
+                                               outline, outline.copy(),  # felt: cut on the line, no allowance
+                                               np.array([centre - [0, half], centre + [0, half]]), None)
+    return Pattern(pieces, letters, marks, ps, features)

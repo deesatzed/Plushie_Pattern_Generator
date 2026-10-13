@@ -11,7 +11,6 @@ from plush.geometry.assemble import assemble
 from plush.panels import build_panels, gore_panels
 from plush.parts import parse_kit
 from plush.settings import load_settings
-from plush.stuffing import stuff_all
 
 from kits import bear, part
 
@@ -26,10 +25,8 @@ def build(kit_dict):
 
 
 @pytest.fixture(scope="module")
-def bear_pattern():
-    kit, placed, ps = build(bear())
-    stuffing = stuff_all(ps, SETTINGS)
-    return kit, placed, finish(kit, placed, ps, SETTINGS), stuffing
+def bear_pattern(bear_stuffed):
+    return bear_stuffed
 
 
 def test_check_1_passes_for_the_bear(bear_pattern):
