@@ -24,6 +24,7 @@ from plush.parts import parse_kit
 from plush.pattern import build_pattern
 from plush.projects import ApprovalError, Projects
 from plush.settings import Settings, load_settings
+from plush.vision import ReadError, read_picture
 
 REQUIRED_ENV = ("OPENROUTER_API_KEY", "PLUSH_VISION_MODEL")
 DEFAULT_PROJECTS = Path(__file__).resolve().parents[2] / "projects"
@@ -40,7 +41,9 @@ class Height(BaseModel):
     finished_height_in: float = Field(gt=2, le=60)
 
 
-def create_app(projects_root: Path, settings: Settings | None = None) -> FastAPI:
+def create_app(projects_root: Path, settings: Settings | None = None,
+               vision: tuple[str, str] | None = None) -> FastAPI:
+    """`vision` is (model, OpenRouter key); without it, picture reading answers 503."""
     projects = Projects(projects_root)
     settings = settings or load_settings()
     app = FastAPI(title="Plush pattern engine")
@@ -75,6 +78,19 @@ def create_app(projects_root: Path, settings: Settings | None = None) -> FastAPI
         drafts = projects.drafts(slug)
         return {"slug": slug, "drafts": len(drafts), "approved": projects.approved(slug),
                 "has_pattern": projects.pdf_path(slug).exists()}
+
+    @app.post("/api/projects/{slug}/read")
+    def read(slug: str):
+        path = folder(slug)
+        if vision is None:
+            raise HTTPException(503, "picture reading is not set up: OPENROUTER_API_KEY and PLUSH_VISION_MODEL")
+        picture = next(path.glob("picture.*"))
+        media = {v: k for k, v in PICTURE_TYPES.items()}[picture.suffix.lstrip(".")]
+        try:
+            kit = read_picture(picture.read_bytes(), media, *vision)
+        except ReadError as e:
+            raise HTTPException(502, str(e)) from e
+        return {"draft": projects.save_draft(slug, kit), "kit": kit.model_dump(mode="json")}
 
     @app.put("/api/projects/{slug}/kit")
     def save_kit(slug: str, kit: dict):
@@ -140,7 +156,8 @@ def app_from_env() -> FastAPI:
     missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
     if missing:
         raise RuntimeError(f"cannot start: set {' and '.join(missing)} (see README)")
-    return create_app(Path(os.environ.get("PLUSH_PROJECTS_DIR", DEFAULT_PROJECTS)))
+    return create_app(Path(os.environ.get("PLUSH_PROJECTS_DIR", DEFAULT_PROJECTS)),
+                      vision=(os.environ["PLUSH_VISION_MODEL"], os.environ["OPENROUTER_API_KEY"]))
 
 
 def __getattr__(name: str):

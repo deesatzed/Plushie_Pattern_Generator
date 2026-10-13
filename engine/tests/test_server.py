@@ -27,6 +27,12 @@ def test_service_will_not_start_without_picture_reading_settings(monkeypatch):
         app_from_env()
 
 
+def test_picture_reading_says_when_it_is_not_set_up(client):
+    slug = new_project(client)
+    response = client.post(f"/api/projects/{slug}/read")
+    assert response.status_code == 503 and "PLUSH_VISION_MODEL" in response.json()["detail"]
+
+
 def test_an_invalid_kit_is_rejected_with_the_reason(client):
     slug = new_project(client)
     kit = bear()
