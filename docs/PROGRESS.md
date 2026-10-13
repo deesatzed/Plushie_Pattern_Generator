@@ -25,7 +25,11 @@ Read this file and `git log` before starting any work session.
     | Bear head, 5.78 in across | 6 | 7.37% | 0.67% / 2.98% | yes / no |
     | Bear head, 5.78 in across | 8 | 4.39% | 0.39% / 1.59% | yes / no |
     | Bear head, 5.78 in across | 12 | 1.87% | 0.22% / 0.68% | yes / yes |
-- [ ] Phase 5: finishing and checks (expected 78; expanded in the plan 2026-10-12)
+- [x] Phase 5: finishing and checks. 2026-10-12: 78 passed, 0 failed, 0 skipped (full run about 2 min 14 s). On the test bear at 12 in, measured in the repo: 24 pieces (body 7 gores + base, head 8 gores, arm 6 strips, ear front + back), built in 53.8 s, nearly all of it stuffing.
+  - Check 1 (seams match): pass, 0.0000 in (limit 1/32 in).
+  - Check 3 (stuffed shape): pass, mean 0.53%, worst 2.62% (limits 3% / 8%). The ears are flat, so not simulated; their outline is exact.
+  - Check 4 (flattening stretch): pass, 4.61% (limit 5%).
+  - Check 5 (sewable): pass. The arms are 0.0029 in off the body and the head 0.0042 in. The ears are 0.089 in off, because a straight base sits on a curved head; that is within the 1/4 in allowance.
 - [ ] Phase 6: outputs (expected 93)
 - [ ] Phase 7: projects and local service (expected 102)
 - [ ] Phase 8: picture reading (expected 104, plus live tests run with approval)
